@@ -1,0 +1,13 @@
+*-checkpoint.ipynb
+*.svg
+.DS_Store
+*.pt
+*.code-workspace
+.vscode/**
+__pycache__
+build/**
+*.pyc
+boardgame2/**
+*.zip
+venv-sb/**
+
