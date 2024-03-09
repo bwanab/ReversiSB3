@@ -1,7 +1,7 @@
 
 import gymnasium as gym
 import boardgame2
-from util.util import reversi_ai_action, board_player_from_state, random_action
+from util.util import reversi_ai_action, board_player_from_state, random_action, render
 
 import numpy as np
 from operator import itemgetter
@@ -14,9 +14,6 @@ from sb3_contrib.common.maskable.policies import MaskableActorCriticPolicy
 from sb3_contrib.common.wrappers import ActionMasker
 
 def mask_fn(env: gym.Env) -> np.ndarray:
-    # Do whatever you'd like in this function to return the action mask
-    # for the current env. In this example, we assume the env has a
-    # helpful method we can rely on.
     mask = env.get_valid(env.board).reshape(64).tolist()
     return np.array(mask + [0], dtype=np.int8)
 
@@ -24,103 +21,59 @@ def get_action(model, obs, mask):
     action, _ = model.predict(obs, action_masks=mask, deterministic=False)
     return action
 
-def ga(model, obs, mask):
-    return get_prediction(model, obs, mask)[0]
 
-def eval_predictions(model, obs, mask):
-    v = [ga(model, obs, mask) for x in range(1000)]
-    d = {}
-    for x in v:
-        d[x] = d.get(x, 0) + 1
-    return d
+def play_games(file, num_games=100, verbose=False):
+    # Create environment
+    env = gym.make("Reversi-v0")
+    # env.action_space.sample = sample_factory(env)
 
-def eval_probs(model, obs):
-    with torch.no_grad():
-        obj_tensor, _ = model.q_net.obs_to_tensor(obs)
-        q_values = model.q_net(obj_tensor)
-    probs = q_values[0][0:64].numpy()
+    # Load the trained agent
+    # NOTE: if you have loading issue, you can pass `print_system_info=True`
+    # to compare the system on which the model was trained vs the current one
 
-    d = eval_predictions(model, obs)
+    model = MaskablePPO.load(file, env=env)
+    model.policy = MaskableActorCriticPolicy.load(file + '_policy.zip')
 
-    cp = [(x, probs[x], d[x]) for x in d.keys()]
-    for x in sorted(cp, key=itemgetter(1), reverse=True):
-        print(x)
+    # model = MaskablePPO(MaskableActorCriticPolicy, env=env)
 
-# def sample_factory(e):
-#     return lambda: np.random.choice(e.all_valid_actions(e.board))
+    # Evaluate the agent
+    # NOTE: If you use wrappers with your environment that modify rewards,
+    #       this will be reflected here. To evaluate with original rewards,
+    #       wrap environment in a "Monitor" wrapper  before other wrappers.
+    # mean_reward, std_reward = evaluate_policy(model, model.get_env(), n_eval_episodes=10)
 
-n_predict_loops = []
+    # Enjoy trained agent
+    vec_env = model.get_env()
+    obs = vec_env.reset()
+    black_wins = 0
 
-def get_prediction(model, obs, env, mask):
-    v = set(env.all_valid_actions(obs[0]))
-    good = False
-    for i in range(1000):
-        action = get_action(model, obs, mask)
-        if action[0] in v:
-            good = True
-            break
-    n_predict_loops.append(i)
-    return action, good
+    for i in range(num_games):
+        term = False
+        model_count = 0
 
-# Create environment
-env = gym.make("Reversi-v0")
-# env.action_space.sample = sample_factory(env)
+        while not term:
+            _,player = board_player_from_state(obs[0])
+            if player == -1:
+                # print("======  RAI  ====== ")
+                action = random_action(env, obs[0])
+                # action = reversi_ai_action(env, obs[0])
+            else:
+                # print("====== Model ====== ")
+                action = get_action(model, obs, mask_fn(env))
+                model_count += 1
+            # print(action)
+            obs, rewards, term, info = vec_env.step(action)
+            if term:
+                term_obs = info[0]['terminal_observation']
+                black_score = sum(term_obs == 1)
+                white_score = sum(term_obs == -1)
+                if verbose:
+                    print(f"Black: {black_score}, White: {white_score}, actions: {black_score + white_score}, Reward: {rewards[0]}")
+                    render(term_obs)
+                black_wins += black_score > white_score
+            # vec_env.render()
+    return black_wins
 
-file = "ppo_reversi_test"
-
-# Load the trained agent
-# NOTE: if you have loading issue, you can pass `print_system_info=True`
-# to compare the system on which the model was trained vs the current one
-
-model = MaskablePPO.load(file, env=env)
-model.policy = MaskableActorCriticPolicy.load(file + '_policy.zip')
-
-# model = MaskablePPO(MaskableActorCriticPolicy, env=env)
-
-# Evaluate the agent
-# NOTE: If you use wrappers with your environment that modify rewards,
-#       this will be reflected here. To evaluate with original rewards,
-#       wrap environment in a "Monitor" wrapper  before other wrappers.
-# mean_reward, std_reward = evaluate_policy(model, model.get_env(), n_eval_episodes=10)
-
-# Enjoy trained agent
-vec_env = model.get_env()
-obs = vec_env.reset()
-black_wins = 0
-
-for i in range(100):
-    term = False
-    model_count = 0
-
-    while not term:
-        _,player = board_player_from_state(obs[0])
-        if player == -1:
-            # print("======  RAI  ====== ")
-            action = random_action(env, obs[0])
-            # action = reversi_ai_action(env, obs[0])
-        else:
-            # print("====== Model ====== ")
-            mask = mask_fn(env)
-            action, good = get_prediction(model, obs, env, mask)
-            if not good:
-                d = eval_predictions(model, obs, mask)
-                cp = [(x, d[x]) for x in d.keys()]
-                print(env.all_valid_actions(obs[0]))
-                for x in sorted(cp, key=itemgetter(1), reverse=True):
-                    print(x)
-
-                print("bad action")
-            model_count += 1
-        # print(action)
-        obs, rewards, term, info = vec_env.step([action])
-        _,new_player = board_player_from_state(obs[0])
-        if term:
-            term_obs = info[0]['terminal_observation']
-            black_score = sum(term_obs == 1)
-            white_score = sum(term_obs == -1)
-            print(f"Black: {black_score}, White: {white_score}, actions: {black_score + white_score}, Reward: {rewards[0]}")
-            black_wins += black_score > white_score
-        # vec_env.render()
-print(f"Black wins: {black_wins} average predict loop: {sum(n_predict_loops) / len(n_predict_loops)} total predict loops: {sum(n_predict_loops)}")
-
-
+n_games = 10
+black_wins = play_games("ppo_reversi_test", n_games, verbose=True)
+print(f"Black wins: {100 * black_wins / n_games}%")

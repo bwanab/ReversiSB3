@@ -16,16 +16,16 @@ from sb3_contrib.common.wrappers import ActionMasker
 
 from stable_baselines3.common.callbacks import BaseCallback
 class Opponent():
-    def get_action(state, shape):
+    def get_action(self, env, state):
         pass
 
 class RAIOpponent(Opponent):
-    def get_action(self, state, shape):
-        return np.ravel_multi_index(reversi_ai_action(state), shape)
+    def get_action(self, env, state):
+        return reversi_ai_action(env, state)
 
 class RandomOpponent(Opponent):
-    def get_action(self, state, shape):
-        return np.ravel_multi_index(random_action(state), shape)
+    def get_action(self, env, state):
+        return random_action(env, state)
 
 class FullRoundTripCallback(BaseCallback):
     def __init__(self, episodes = 100_000, verbose: int = 1, opponent = RandomOpponent):
@@ -41,7 +41,7 @@ class FullRoundTripCallback(BaseCallback):
             self.threshold = 0.0
         return rval
     
-    def get_action(self, state, shape):
+    def get_action(self, env, state):
         # r_factor = self.get_threshold()
         # r_val = np.random.random(1)[0]
         # if r_val < r_factor:
@@ -49,16 +49,16 @@ class FullRoundTripCallback(BaseCallback):
         # else:
         #     return get_reversi_ai_action(state, shape)
         #return get_reversi_ai_action(state, shape)
-        return self.opponent.get_action(state, shape)
+        return self.opponent.get_action(env, state)
 
     def _on_step(self) -> bool:
         env = self.training_env.envs[0]
         state = env.board
         _, player = board_player_from_state(state)
         while player == -1:
-            action = self.get_action(state, env.board_shape)
+            action = self.get_action(env, state)
             # obs, rewards, terminated, _truncated, _info = env.step(action)
-            obs, rewards, term, info = self.training_env.step([action])
+            obs, rewards, term, info = self.training_env.step(action)
             state = obs[0]
             _, player = board_player_from_state(state)
         return True
