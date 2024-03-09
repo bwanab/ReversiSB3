@@ -10,4 +10,6 @@ build/**
 boardgame2/**
 *.zip
 venv-sb/**
+*.log/**
+
 
