@@ -1,7 +1,7 @@
 
 import gymnasium as gym
 import boardgame2
-from util.util import reversi_ai_action, board_player_from_state, random_action, render
+from util.util import reversi_ai_action, board_player_from_state, random_action, render, get_opponent, RandomOpponent
 
 import numpy as np
 from operator import itemgetter
@@ -22,7 +22,7 @@ def get_action(model, obs, mask):
     return action
 
 
-def play_games(file, num_games=100, verbose=False):
+def play_games(file, num_games=100, verbose=False, opponent=RandomOpponent):
     # Create environment
     env = gym.make("Reversi-v0")
     # env.action_space.sample = sample_factory(env)
@@ -55,7 +55,7 @@ def play_games(file, num_games=100, verbose=False):
             _,player = board_player_from_state(obs[0])
             if player == -1:
                 # print("======  RAI  ====== ")
-                action = random_action(env, obs[0])
+                action = opponent.get_action(env, obs[0])
                 # action = reversi_ai_action(env, obs[0])
             else:
                 # print("====== Model ====== ")
@@ -74,6 +74,21 @@ def play_games(file, num_games=100, verbose=False):
             # vec_env.render()
     return black_wins
 
-n_games = 10
-black_wins = play_games("ppo_reversi_test", n_games, verbose=True)
-print(f"Black wins: {100 * black_wins / n_games}%")
+import argparse
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(
+                    prog = 'train',
+                    description = 'meant to train a reversi ml, current just doing tests',
+                    epilog = 'Text at the bottom of help')
+
+    parser.add_argument("-e", "--episodes", default=100)
+    parser.add_argument("-m", "--model", default = "ppo_reversi_test")
+    parser.add_argument("-o", "--opponent", default="Random")
+    parser.add_argument("-v", "--verbose", default=False)
+    args = parser.parse_args()
+
+    opponent = get_opponent(args.opponent)
+
+    n_games = int(args.episodes)
+    black_wins = play_games("ppo_reversi_test", n_games, verbose=bool(args.verbose), opponent=opponent)
+    print(f"Black wins: {100 * black_wins / n_games}%")

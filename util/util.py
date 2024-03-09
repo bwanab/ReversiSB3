@@ -8,6 +8,26 @@ from boardgame2 import EMPTY
 from reversi_ai.reversi import GameHasEndedError
 from reversi_ai.reversiai import ReversiAI
 
+class Opponent():
+    def get_action(self, env, state):
+        pass
+
+class RAIOpponent(Opponent):
+    def get_action(self, env, state):
+        return reversi_ai_action(env, state)
+
+class RandomOpponent(Opponent):
+    def get_action(self, env, state):
+        return random_action(env, state)
+
+def get_opponent(s):
+    if s == "Random":
+        opponent = RandomOpponent()
+    else:
+        opponent = RAIOpponent()
+    return opponent
+
+
 """
 return a random action from the valid possible actions
 """
