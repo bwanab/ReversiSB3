@@ -66,13 +66,14 @@ def get_prediction(model, obs, env, mask):
 env = gym.make("Reversi-v0")
 # env.action_space.sample = sample_factory(env)
 
+file = "ppo_reversi_test"
 
 # Load the trained agent
 # NOTE: if you have loading issue, you can pass `print_system_info=True`
 # to compare the system on which the model was trained vs the current one
 
-model = MaskablePPO.load("ppo_reversi", env=env)
-model.policy = MaskableActorCriticPolicy.load('ppo_reversi_policy.zip')
+model = MaskablePPO.load(file, env=env)
+model.policy = MaskableActorCriticPolicy.load(file + '_policy.zip')
 
 # model = MaskablePPO(MaskableActorCriticPolicy, env=env)
 
@@ -95,7 +96,8 @@ for i in range(100):
         _,player = board_player_from_state(obs[0])
         if player == -1:
             # print("======  RAI  ====== ")
-            action = np.array([np.ravel_multi_index(random_action(obs[0]), env.board_shape)])
+            # action = np.array([np.ravel_multi_index(random_action(obs[0]), env.board_shape)])
+            action = np.array([np.ravel_multi_index(reversi_ai_action(obs[0]), env.board_shape)])
         else:
             # print("====== Model ====== ")
             mask = mask_fn(env)
@@ -112,8 +114,6 @@ for i in range(100):
         # print(action)
         obs, rewards, term, info = vec_env.step(action)
         _,new_player = board_player_from_state(obs[0])
-        if rewards[0] < 0:
-            print("ltz reward")
         if term:
             term_obs = info[0]['terminal_observation']
             black_score = sum(term_obs == 1)
