@@ -96,8 +96,8 @@ for i in range(100):
         _,player = board_player_from_state(obs[0])
         if player == -1:
             # print("======  RAI  ====== ")
-            # action = np.array([np.ravel_multi_index(random_action(obs[0]), env.board_shape)])
-            action = np.array([np.ravel_multi_index(reversi_ai_action(obs[0]), env.board_shape)])
+            action = random_action(env, obs[0])
+            # action = reversi_ai_action(env, obs[0])
         else:
             # print("====== Model ====== ")
             mask = mask_fn(env)
@@ -112,7 +112,7 @@ for i in range(100):
                 print("bad action")
             model_count += 1
         # print(action)
-        obs, rewards, term, info = vec_env.step(action)
+        obs, rewards, term, info = vec_env.step([action])
         _,new_player = board_player_from_state(obs[0])
         if term:
             term_obs = info[0]['terminal_observation']
