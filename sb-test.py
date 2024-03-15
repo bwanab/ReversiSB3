@@ -1,6 +1,6 @@
 import gymnasium as gym
 import boardgame2
-from util.util import reversi_ai_action, random_action, board_player_from_state, get_opponent, play, mask_fn, ModelOpponent, RandomOpponent
+from util.util import reversi_ai_action, random_action, board_player_from_state, get_opponent, play, mask_fn, ModelOpponent, RandomOpponent, get_model
 
 import numpy as np
 import os.path
@@ -62,7 +62,7 @@ class PlayCallback(BaseCallback):
         super(PlayCallback, self).__init__(verbose)
 
     def _on_step(self) -> bool:
-        black_wins = play(self.model, self.env, self.episodes, self.opponent, self.verbose)
+        black_wins = play(self.model, self.env, self.episodes, self.opponent, True, self.verbose)
         self.logger.record(key="black_wins", value=black_wins)
         print(f"black_wins: {black_wins}")
         return True
@@ -78,47 +78,30 @@ if __name__ == '__main__':
 
     parser.add_argument("-p", "--epochs", default=1)
     parser.add_argument("-e", "--episodes", default=10_000)
-    parser.add_argument("-m", "--model", default = "ppo_reversi_256")
+    parser.add_argument("-m", "--model", default = "dork")
     parser.add_argument("-o", "--opponent", default="Model") # training opponent
     parser.add_argument("-t", "--test_opponent", default="Random") # test opponent
+    parser.add_argument("-w", "--net_width", default="256")
     args = parser.parse_args()
 
     
     env = ActionMasker(gym.make("Reversi-v0"), mask_fn)  # Wrap to enable masking
 
-    file = args.model
-
-    opponent = get_opponent(args.opponent, file, env)
-
-    # Instantiate the agent
-    if os.path.isfile(file + ".zip"):
-        model = MaskablePPO.load(file, env=env)
-        model.policy = MaskableActorCriticPolicy.load(file + '_policy.zip')
-    else:
-        # lrs = lambda x: 0.003
-        # net_arch = dict(pi=[128, 512, 64], vf=[128, 512, 64])
-        # policy = MaskableActorCriticPolicy(env.observation_space, env.action_space, lrs, net_arch=net_arch)
-        # model = MaskablePPO(policy, env, verbose=1)
-        policy_kwargs = dict(activation_fn=th.nn.ReLU,
-                     net_arch=dict(pi=[256, 256], vf=[256, 256]))
-
-        model = MaskablePPO(MaskableActorCriticPolicy, env, policy_kwargs=policy_kwargs, tensorboard_log=file + ".log")
+    file = "models/" + args.model + "_" + args.net_width
+    
+    net_width = int(args.net_width)
+    opponent = get_opponent(args.opponent, file=file, env=env, net_width=net_width)
+    
+    model = get_model(file, env, net_width=net_width)
     # Train the agent and display a progress bar
     episodes = int(args.episodes)
     epochs = int(args.epochs)
     frtCB = FullRoundTripCallback(episodes=episodes, opponent=opponent)
-    # checkpointCB = CheckpointCallback(
-    #     save_freq=10000,
-    #     save_path="./",
-    #     name_prefix=file,
-    #     save_replay_buffer=True,
-    #     save_vecnormalize=True,
-    #     )
-    # playCB = PlayCallback(model, env, 100, opponent, False)
     for i in range(epochs):
-        test_opponent = get_opponent(args.test_opponent, file, env)
+        print(f"--------- Epoch: {i + 1} -----------")
+        test_opponent = get_opponent(args.test_opponent, file=file, env=env, net_width=net_width)
         playCB = PlayCallback(model, env, file, 100, test_opponent, False)
-        everyNCB = EveryNTimesteps(n_steps=10_000, callback=playCB)
+        everyNCB = EveryNTimesteps(n_steps=100_000, callback=playCB)
         model.learn(total_timesteps=int(episodes), progress_bar=True, callback=[frtCB, everyNCB])
         # Save the agent
         model.save(file)

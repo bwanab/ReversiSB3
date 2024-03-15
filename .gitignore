@@ -11,5 +11,6 @@ boardgame2/**
 *.zip
 venv-sb/**
 *.log/**
+models/**
 
 
