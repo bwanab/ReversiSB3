@@ -10,10 +10,6 @@ from time import time
 #from stable_baselines3.common.evaluation import evaluate_policy
 
 import torch as th
-from sb3_contrib import MaskablePPO
-from sb3_contrib.common.maskable.policies import MaskableActorCriticPolicy
-# from sb3_contrib.common.maskable.evaluation import evaluate_policy
-# from sb3_contrib.common.maskable.utils import get_action_masks
 from sb3_contrib.common.wrappers import ActionMasker
 
 from stable_baselines3.common.logger import Logger, TensorBoardOutputFormat

@@ -11,10 +11,6 @@ from reversi_ai.reversiai import ReversiAI
 
 from sb3_contrib import MaskablePPO
 from sb3_contrib.common.maskable.policies import MaskableActorCriticPolicy
-from sb3_contrib.common.wrappers import ActionMasker
-
-from stable_baselines3.common.logger import Logger, TensorBoardOutputFormat
-from stable_baselines3.common.callbacks import BaseCallback, EveryNTimesteps, CheckpointCallback
 
 import torch as th
 
@@ -29,6 +25,7 @@ def get_model(file, env, net_width=256):
         # model = MaskablePPO(policy, env, verbose=1)
         policy_kwargs = dict(activation_fn=th.nn.ReLU,
                      net_arch=dict(pi=[net_width, net_width], vf=[net_width, net_width]))
+
 
         model = MaskablePPO(MaskableActorCriticPolicy, env, policy_kwargs=policy_kwargs, tensorboard_log=file + ".log")
     return model
