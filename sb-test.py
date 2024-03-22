@@ -15,8 +15,9 @@ from sb3_contrib.common.wrappers import ActionMasker
 from stable_baselines3.common.logger import Logger, TensorBoardOutputFormat
 from stable_baselines3.common.callbacks import BaseCallback, EveryNTimesteps, CheckpointCallback
 
-def round_trip(training_env, state, opponent):
+def round_trip(training_env, opponent):
     env = training_env.envs[0]
+    state = env.board
     _, player = board_player_from_state(state)
     while player == -1:
         action = opponent.get_action(env, state)
@@ -43,8 +44,7 @@ class FullRoundTripCallback(BaseCallback):
         return self.opponent.get_action(env, state)
 
     def _on_step(self) -> bool:
-        state = env.board
-        return round_trip(self.training_env, state, self.opponent)
+        return round_trip(self.training_env, self.opponent)
 
 
 class PlayCallback(BaseCallback):
@@ -74,10 +74,10 @@ if __name__ == '__main__':
 
     parser.add_argument("-p", "--epochs", default=1)
     parser.add_argument("-e", "--episodes", default=10_000)
-    parser.add_argument("-m", "--model", default = "dork")
+    parser.add_argument("-m", "--model", default = "reversi_ppo_alt")
     parser.add_argument("-o", "--opponent", default="Model") # training opponent
     parser.add_argument("-t", "--test_opponent", default="Random") # test opponent
-    parser.add_argument("-w", "--net_width", default="256")
+    parser.add_argument("-w", "--net_width", default="512")
     args = parser.parse_args()
 
     

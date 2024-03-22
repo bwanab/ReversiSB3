@@ -23,12 +23,13 @@ if __name__ == '__main__':
                     epilog = 'Text at the bottom of help')
 
     parser.add_argument("-e", "--episodes", default=100)
-    parser.add_argument("-m", "--model", default = "dork")
+    parser.add_argument("-m", "--model", default = "reversi_ppo_alt_512")
     parser.add_argument("-o", "--opponent", default="Random")
     parser.add_argument("-d", "--deterministic", action='store_true')
     parser.add_argument("-v", "--verbose", action='store_true')
     args = parser.parse_args()
 
     n_games = int(args.episodes)
-    black_wins = play_games(args.model, n_games, verbose=bool(args.verbose), opponentName=args.opponent,deterministic=args.deterministic)
+    # black_wins = play_games("models/" + args.model, n_games, verbose=True, opponentName=args.opponent,deterministic=args.deterministic)
+    black_wins = play_games("models/" + args.model, n_games, verbose=bool(args.verbose), opponentName=args.opponent,deterministic=args.deterministic)
     print(f"Black wins: {100 * black_wins / n_games}%")
