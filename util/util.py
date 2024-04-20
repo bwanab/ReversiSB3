@@ -4,9 +4,10 @@ import sys
 import os
 import copy
 import csv
+import itertools
 
 import gymnasium as gym
-from boardgame2.env import board_player_from_state, strfboard
+from boardgame2.env import board_player_from_state, strfboard, is_index
 from boardgame2 import EMPTY
 from reversi_ai.reversi import GameHasEndedError
 from reversi_ai.reversiai import ReversiAI
@@ -29,7 +30,7 @@ def get_model(file, env, net_width=256, learning_rate = 0.01):
                      net_arch=dict(pi=[net_width, net_width], vf=[net_width, net_width]))
 
 
-        model = MaskablePPO(MaskableActorCriticPolicy, env, policy_kwargs=policy_kwargs, tensorboard_log=file + ".log", gamma=1.0, learning_rate=learning_rate)
+        model = MaskablePPO(MaskableActorCriticPolicy, env, policy_kwargs=policy_kwargs, tensorboard_log=file + ".log", gamma=1.0, learning_rate=lambda x: x * 0.01, ent_coef=0.01)
     return model
 
 class Opponent():
@@ -62,7 +63,9 @@ class ModelOpponent(Opponent):
 
 class RAIOpponent(Opponent):
     def get_action(self, env, state):
-        return reversi_ai_action(env, state)
+        _, player = board_player_from_state(state)
+        alt_state = copy.copy(state) * player
+        return reversi_ai_action(env, alt_state)
 
 class RandomOpponent(Opponent):
     def get_action(self, env, state):
@@ -82,7 +85,11 @@ def get_opponent(s, **kwargs):
 return a random action from the valid possible actions
 """
 def random_action(env, state):
-    return np.array([random.choice(env.all_valid_actions(state))])
+    actions = env.all_valid_actions(state)
+    if len(actions) == 0:
+        return np.array([])
+    else:
+        return np.array([random.choice(actions)])
 
 rai_cell_map = {-1: 'w', 0: ' ', 1: 'b'}
 render_cell_map = {-1: 'x', 0: '.', 1: 'o'}
@@ -215,3 +222,108 @@ def play(model, env, num_games, opponent, deterministic, verbose):
                             print(m, desc)
                 black_wins += black_score > white_score
     return black_wins
+
+def alt_play(env, num_games, black_player: Opponent, white_player: Opponent):
+    black_wins = 0
+    for i in range(num_games):
+        term = False
+        obs = env.reset()[0]
+        while not term:
+            board, player = board_player_from_state(obs)
+            if player == 1:
+                action = black_player.get_action(env, obs)
+            else:
+                action = white_player.get_action(env, obs)
+            
+            obs, score, term, something, info = env.step(action[0])
+            if (score != 0) and (term == False):
+                print("score != and term false!") 
+            if term:
+                # term_obs = info[0]['terminal_observation']
+                term_obs = obs
+                black_score = sum(term_obs == 1)
+                white_score = sum(term_obs == -1)
+                black_wins += black_score > white_score
+    return black_wins
+
+def get_pos_score(board, player, action) -> int:
+    """
+    Parameters
+    ----
+    board : np.array    
+    action : np.array   location
+
+    Returns
+    ----
+    score : int     the score given by number of opponents captured
+    """
+    
+    if not is_index(board, action):
+        return False
+
+    x, y = np.unravel_index(action, board.shape)
+    if board[x, y] != EMPTY:
+        return 0
+
+    for dx in [-1, 0, 1]:  # loop on the 8 directions
+        for dy in [-1, 0, 1]:
+            if (dx, dy) == (0, 0):
+                continue
+            xx, yy = x, y
+            for count in itertools.count():
+                xx, yy = xx + dx, yy + dy
+                if xx < 0 or xx >= board.shape[0] or yy < 0 or yy >= board.shape[1]:
+                    break
+                if not is_index(board, (xx, yy)):
+                    break
+                if board[xx, yy] == EMPTY:
+                    break
+                if board[xx, yy] == -player:
+                    continue
+                if count:  # and is player
+                    return count
+                break
+    return 0
+
+def get_scores(state):
+    """Get all valid locations for the current state.
+
+    Parameters
+    ----
+    state : (np.array, int)    board and player
+
+    Returns
+    ----
+    valid : np.array     current valid place for the player
+    """
+    board, player = board_player_from_state(state)
+    max = len(board) - 1
+    scores = []
+    for x in range(board.shape[0]):
+        for y in range(board.shape[1]):
+            score = get_pos_score(board, player, np.ravel_multi_index((x, y), board.shape))
+            # add 2 for getting a corner, 1 for getting an edge
+            if score > 0:
+                if ((x == 0) or (x == max)):
+                    if ((y == 0) or (y == max)):
+                        score += 2
+                    else:
+                        score += 1
+                elif ((y == 0) or (y == max)):
+                    if ((x == 0) or (x == max)):
+                        score += 2
+                    else:
+                        score += 1
+
+                scores.append((score, x, y))
+    return sorted(scores, reverse=True)
+
+# just for test
+
+# import gymnasium as gym
+# import boardgame2
+
+# env = gym.make("Reversi-v0")
+# wo = RAIOpponent()
+# bo = RandomOpponent()
+# print("black wins: ", alt_play(env, 10, bo, wo))

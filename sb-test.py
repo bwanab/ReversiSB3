@@ -27,10 +27,14 @@ def round_trip(training_env, opponent):
     return True
 
 class FullRoundTripCallback(BaseCallback):
-    def __init__(self, episodes = 100_000, verbose: int = 1, opponent = RandomOpponent):
+    def __init__(self, file, env, net_width, episodes = 100_000, verbose: int = 1, opponentName = "Random"):
+        self.file = file
+        self.env = env
+        self.net_width = net_width
         self.threshold = 1
         self.r_factor = 1 / episodes
-        self.opponent = opponent
+        self.opponentName = opponentName
+        self.update_opponent()
         super(FullRoundTripCallback, self).__init__(verbose)
 
     def get_threshold(self):
@@ -40,6 +44,9 @@ class FullRoundTripCallback(BaseCallback):
             self.threshold = 0.0
         return rval
     
+    def update_opponent(self):
+        self.opponent = get_opponent(args.opponent, file=self.file, env=self.env, net_width=self.net_width)
+
     def get_action(self, env, state):
         return self.opponent.get_action(env, state)
 
@@ -48,12 +55,13 @@ class FullRoundTripCallback(BaseCallback):
 
 
 class PlayCallback(BaseCallback):
-    def __init__(self, model, env, file, episodes = 100, opponent = RandomOpponent, verbose: bool = False):
+    def __init__(self, model, env, file, frtCB, episodes = 100, opponent = RandomOpponent, verbose: bool = False):
         self.episodes = episodes
         self.verbose = verbose
         self.opponent = opponent
         self.env = env
         self.model = model
+        self.file = file
         self.logger = Logger("./" + file + ".log", TensorBoardOutputFormat("./" + file + ".log"))
         super(PlayCallback, self).__init__(verbose)
 
@@ -61,6 +69,9 @@ class PlayCallback(BaseCallback):
         black_wins = play(self.model, self.env, self.episodes, self.opponent, True, self.verbose)
         self.logger.record(key="black_wins", value=black_wins)
         print(f"black_wins: {black_wins}")
+        self.model.save(file)
+        self.model.policy.save(file + "_policy.zip")
+        frtCB.update_opponent()
         return True
 
 
@@ -74,7 +85,7 @@ if __name__ == '__main__':
 
     parser.add_argument("-p", "--epochs", default=1)
     parser.add_argument("-e", "--episodes", default=10_000)
-    parser.add_argument("-m", "--model", default = "reversi_ppo_alt")
+    parser.add_argument("-m", "--model", default = "dork")
     parser.add_argument("-o", "--opponent", default="Model") # training opponent
     parser.add_argument("-t", "--test_opponent", default="Random") # test opponent
     parser.add_argument("-w", "--net_width", default="512")
@@ -86,17 +97,17 @@ if __name__ == '__main__':
     file = "models/" + args.model + "_" + args.net_width
     
     net_width = int(args.net_width)
-    opponent = get_opponent(args.opponent, file=file, env=env, net_width=net_width)
+    # opponent = get_opponent(args.opponent, file=file, env=env, net_width=net_width)
     
     model = get_model(file, env, net_width=net_width)
     # Train the agent and display a progress bar
     episodes = int(args.episodes)
     epochs = int(args.epochs)
-    frtCB = FullRoundTripCallback(episodes=episodes, opponent=opponent)
+    frtCB = FullRoundTripCallback(file, env, net_width, episodes=episodes, opponentName=args.opponent)
     for i in range(epochs):
         print(f"--------- Epoch: {i + 1} -----------")
         test_opponent = get_opponent(args.test_opponent, file=file, env=env, net_width=net_width)
-        playCB = PlayCallback(model, env, file, 100, test_opponent, False)
+        playCB = PlayCallback(model, env, file, frtCB, 100, test_opponent, False)
         everyNCB = EveryNTimesteps(n_steps=100_000, callback=playCB)
         model.learn(total_timesteps=int(episodes), progress_bar=True, callback=[frtCB, everyNCB])
         # Save the agent
