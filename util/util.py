@@ -17,7 +17,7 @@ from sb3_contrib.common.maskable.policies import MaskableActorCriticPolicy
 
 import torch as th
 
-def get_model(file, env, net_width=256, learning_rate = 0.01):
+def get_model(file, env, net_width=256, learning_rate = 0.0003):
     if os.path.isfile(file + ".zip"):
         model = MaskablePPO.load(file, env=env)
         model.policy = MaskableActorCriticPolicy.load(file + '_policy.zip')
@@ -27,15 +27,28 @@ def get_model(file, env, net_width=256, learning_rate = 0.01):
         # policy = MaskableActorCriticPolicy(env.observation_space, env.action_space, lrs, net_arch=net_arch)
         # model = MaskablePPO(policy, env, verbose=1)
         policy_kwargs = dict(activation_fn=th.nn.ReLU,
-                     net_arch=dict(pi=[net_width, net_width], vf=[net_width, net_width]))
+                     net_arch=dict(pi=[net_width, net_width, net_width, net_width, net_width], vf=[net_width, net_width, net_width, net_width, net_width]))
 
 
-        model = MaskablePPO(MaskableActorCriticPolicy, env, policy_kwargs=policy_kwargs, tensorboard_log=file + ".log", gamma=1.0, learning_rate=lambda x: x * 0.01, ent_coef=0.01)
+        model = MaskablePPO(MaskableActorCriticPolicy, env, policy_kwargs=policy_kwargs, tensorboard_log=file + ".log", gamma=1.0, learning_rate=learning_rate, ent_coef=0.01)
     return model
 
 class Opponent():
     def get_action(self, env, state):
         pass
+
+class Human(Opponent):
+    def get_action(self, env, state):
+        render(state)
+        for (score, y, x) in get_scores(state):
+            print(f"{'abcdefgh'[x]}{y+1}: {score}")
+        while True:
+            t = input()
+            x = "abcdefgh".find(t[0])
+            if x >= 0:
+                y = int(t[1]) - 1
+                if 0 <= y < 8:
+                    return np.array([np.ravel_multi_index([y,x], (8,8))])
 
 class ModelOpponent(Opponent):
     def __init__(self, **kwargs):
@@ -76,6 +89,8 @@ def get_opponent(s, **kwargs):
         opponent = RandomOpponent()
     elif s == "RAI":
         opponent = RAIOpponent()
+    elif s == "Human":
+        opponent = Human()
     else:
         opponent = ModelOpponent(**kwargs)
     return opponent
@@ -142,7 +157,7 @@ def render(obs):
 
 def mask_fn(env: gym.Env) -> np.ndarray:
     mask = env.get_valid(env.board).reshape(64).tolist()
-    return np.array(mask + [0], dtype=np.int8)
+    return np.array(mask, dtype=np.int8)
 
 def get_action(model: MaskablePPO, obs, mask, deterministic=False, verbose=False):
     action, _ = model.predict(obs, action_masks=mask, deterministic=deterministic)
@@ -171,8 +186,9 @@ def count_players(per_player, board):
     per_player[-1] = len(np.where(board == -1)[0])
     return {1: per_player[1] - old_player[1], -1: per_player[-1] - old_player[-1]}
 
-def play(model, env, num_games, opponent, deterministic, verbose):
+def play(model, num_games, opponent, deterministic, verbose):
     vec_env = model.get_env()
+    env = vec_env.envs[0]
     obs = vec_env.reset()
     black_wins = 0
 

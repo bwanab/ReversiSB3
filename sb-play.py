@@ -12,7 +12,7 @@ def play_games(file, num_games=100, verbose=False, opponentName="Random", determ
 
     model = MaskablePPO.load(file, env=env)
     model.policy = MaskableActorCriticPolicy.load(file + '_policy.zip')
-    black_wins = play(model, env, num_games, opponent, deterministic, verbose)
+    black_wins = play(model, num_games, opponent, deterministic, verbose)
     return black_wins
 
 import argparse
@@ -23,8 +23,8 @@ if __name__ == '__main__':
                     epilog = 'Text at the bottom of help')
 
     parser.add_argument("-e", "--episodes", default=100)
-    parser.add_argument("-m", "--model", default = "reversi_ppo_alt_512")
-    parser.add_argument("-o", "--opponent", default="Random")
+    parser.add_argument("-m", "--model", default = "reversi_ppo_5layer_03LR_512")
+    parser.add_argument("-o", "--opponent", default="Human")
     parser.add_argument("-d", "--deterministic", action='store_true')
     parser.add_argument("-v", "--verbose", action='store_true')
     args = parser.parse_args()

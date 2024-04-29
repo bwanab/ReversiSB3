@@ -12,7 +12,7 @@ from time import time
 import torch as th
 from sb3_contrib.common.wrappers import ActionMasker
 
-from stable_baselines3.common.logger import Logger, TensorBoardOutputFormat
+from stable_baselines3.common.logger import Logger, TensorBoardOutputFormat, configure
 from stable_baselines3.common.callbacks import BaseCallback, EveryNTimesteps, CheckpointCallback
 
 def round_trip(training_env, opponent):
@@ -45,33 +45,32 @@ class FullRoundTripCallback(BaseCallback):
         return rval
     
     def update_opponent(self):
-        self.opponent = get_opponent(args.opponent, file=self.file, env=self.env, net_width=self.net_width)
+        self.opponent = get_opponent(self.opponentName, file=self.file, env=self.env, net_width=self.net_width)
 
     def get_action(self, env, state):
         return self.opponent.get_action(env, state)
 
     def _on_step(self) -> bool:
-        return round_trip(self.training_env, self.opponent)
+        return round_trip(self.env, self.opponent)
 
 
 class PlayCallback(BaseCallback):
-    def __init__(self, model, env, file, frtCB, episodes = 100, opponent = RandomOpponent, verbose: bool = False):
+    def __init__(self, model, file, frtCB, episodes = 100, opponent = RandomOpponent, verbose: bool = False):
         self.episodes = episodes
         self.verbose = verbose
         self.opponent = opponent
-        self.env = env
         self.model = model
         self.file = file
         self.logger = Logger("./" + file + ".log", TensorBoardOutputFormat("./" + file + ".log"))
+        self.frtCB = frtCB
         super(PlayCallback, self).__init__(verbose)
 
     def _on_step(self) -> bool:
-        black_wins = play(self.model, self.env, self.episodes, self.opponent, True, self.verbose)
+        black_wins = play(self.model, self.episodes, self.opponent, True, self.verbose)
         self.logger.record(key="black_wins", value=black_wins)
-        print(f"black_wins: {black_wins}")
         self.model.save(file)
         self.model.policy.save(file + "_policy.zip")
-        frtCB.update_opponent()
+        self.frtCB.update_opponent()
         return True
 
 
@@ -84,8 +83,8 @@ if __name__ == '__main__':
                     epilog = 'Text at the bottom of help')
 
     parser.add_argument("-p", "--epochs", default=1)
-    parser.add_argument("-e", "--episodes", default=10_000)
-    parser.add_argument("-m", "--model", default = "dork")
+    parser.add_argument("-e", "--episodes", default=100000)
+    parser.add_argument("-m", "--model", default = "reversi_ppo")
     parser.add_argument("-o", "--opponent", default="Model") # training opponent
     parser.add_argument("-t", "--test_opponent", default="Random") # test opponent
     parser.add_argument("-w", "--net_width", default="512")
@@ -94,22 +93,23 @@ if __name__ == '__main__':
     
     env = ActionMasker(gym.make("Reversi-v0"), mask_fn)  # Wrap to enable masking
 
-    file = "models/" + args.model + "_" + args.net_width
-    
+    file = "models/" + args.model + "_5layer_03LR_" + args.net_width
     net_width = int(args.net_width)
     # opponent = get_opponent(args.opponent, file=file, env=env, net_width=net_width)
     
     model = get_model(file, env, net_width=net_width)
+    new_logger = configure("models/temp/", ["stdout", "csv", "tensorboard"])
+    model.set_logger(new_logger)
     # Train the agent and display a progress bar
-    episodes = int(args.episodes)
+    episodes = int(args.episodes) * 60
     epochs = int(args.epochs)
-    frtCB = FullRoundTripCallback(file, env, net_width, episodes=episodes, opponentName=args.opponent)
+    frtCB = FullRoundTripCallback(file, model.get_env(), net_width, episodes=episodes, opponentName=args.opponent)
     for i in range(epochs):
         print(f"--------- Epoch: {i + 1} -----------")
         test_opponent = get_opponent(args.test_opponent, file=file, env=env, net_width=net_width)
-        playCB = PlayCallback(model, env, file, frtCB, 100, test_opponent, False)
-        everyNCB = EveryNTimesteps(n_steps=100_000, callback=playCB)
-        model.learn(total_timesteps=int(episodes), progress_bar=True, callback=[frtCB, everyNCB])
+        playCB = PlayCallback(model, file, frtCB, 100, test_opponent, False)
+        everyNCB = EveryNTimesteps(n_steps=10000, callback=playCB)
+        model.learn(total_timesteps=episodes, progress_bar=True, callback=[frtCB, everyNCB])
         # Save the agent
         model.save(file)
         model.policy.save(file + "_policy.zip")
