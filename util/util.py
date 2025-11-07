@@ -7,8 +7,6 @@ import csv
 import itertools
 
 import gymnasium as gym
-from boardgame2.env import board_player_from_state, strfboard, is_index
-from boardgame2 import EMPTY
 from reversi_ai.reversi import GameHasEndedError
 from reversi_ai.reversiai import ReversiAI
 
@@ -16,6 +14,10 @@ from sb3_contrib import MaskablePPO
 from sb3_contrib.common.maskable.policies import MaskableActorCriticPolicy
 
 import torch as th
+
+EMPTY = 0
+BLACK = 1
+WHITE = -1
 
 def get_model(file, env, net_width=256, learning_rate = 0.0003):
     if os.path.isfile(file + ".zip"):
@@ -141,6 +143,30 @@ def add_notation(s):
         rval = rval.replace("$", str(i), 1)
     return rval
 
+def strfboard(board: np.array, render_characters: str='+ox', end: str='\n') -> str:
+    """Format a board as a string
+
+    Parameters
+    ----
+    board : np.array
+    render_characters : str="+ox"
+        - character at position 0 represents empty;
+        - character at position 1 represents BLACK;
+        - character at position -1 represents WHITE.
+    end : str
+
+    Returns
+    ----
+    s : str
+    """
+    s = ''
+    for x in range(board.shape[1]):
+        for y in range(board.shape[2]):
+            c = render_characters[board[0, x, y]]
+            s += c
+        s += end
+    return s[:-len(end)]
+
 """
 this is a dupe of the render in boardgame2 only using the obs instead of the env since
 where it's needed here the env isn't available
@@ -148,7 +174,7 @@ where it's needed here the env isn't available
 def render(obs):
     """See gym.Env.render()."""
     outfile = sys.stdout
-    board, _ = board_player_from_state(obs)
+    board = obs
     s = strfboard(board, render_cell_map)
     s = add_notation(s)
     outfile.write(s)
@@ -333,6 +359,27 @@ def get_scores(state):
 
                 scores.append((score, x, y))
     return sorted(scores, reverse=True)
+
+def is_index(board: np.array, location) -> str:
+    """Check whether a location is a valid index of the board
+
+    Parameters:
+    ----
+    board : np.array 2D
+    location : int 
+
+    Returns
+    ----
+    is_index : bool
+    """
+    if isinstance(location, int) or isinstance(location, np.integer):
+        if location < 0 or location >= board.size:
+            return False
+        x, y = np.unravel_index(location, board.shape)
+    else:
+        _, x, y = location
+
+    return x in range(board.shape[1]) and y in range(board.shape[2])
 
 # just for test
 
