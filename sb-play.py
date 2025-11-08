@@ -26,7 +26,7 @@ if __name__ == '__main__':
                     epilog = 'Text at the bottom of help')
 
     parser.add_argument("-e", "--episodes", default=100)
-    parser.add_argument("-m", "--model", default = "dork3_CNN_test1_512")
+    parser.add_argument("-m", "--model", default = "dork4_CNN_test")
     parser.add_argument("-o", "--opponent", default="Random")
     parser.add_argument("-d", "--deterministic", action='store_true')
     parser.add_argument("-v", "--verbose", action='store_true')

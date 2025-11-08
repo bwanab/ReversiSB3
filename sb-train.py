@@ -91,9 +91,9 @@ if __name__ == '__main__':
                     description = 'meant to train a reversi ml, current just doing tests',
                     epilog = 'Text at the bottom of help')
 
-    parser.add_argument("-p", "--epochs", default=200)
-    parser.add_argument("-e", "--episodes", default=200)
-    parser.add_argument("-m", "--model", default = "dork3")
+    parser.add_argument("-p", "--epochs", default=20)
+    parser.add_argument("-e", "--episodes", default=100)
+    parser.add_argument("-m", "--model", default = "dork4")
     parser.add_argument("-o", "--opponent", default="Random") # training opponent
     parser.add_argument("-t", "--test_opponent", default="Random") # test opponent
     parser.add_argument("-w", "--net_width", default="512")
@@ -102,11 +102,10 @@ if __name__ == '__main__':
     
     env = ActionMasker(ReversiEnvCNN.build_reversi(), mask_fn)  # Wrap to enable masking
 
-    file = "models/" + args.model + "_CNN_test1_" + args.net_width
+    file = "models/" + args.model + "_CNN_test"
     net_width = int(args.net_width)
     # opponent = get_opponent(args.opponent, file=file, env=env, net_width=net_width)
-    
-    model = get_model(file, env, net_width=net_width, model_type="cnn")
+    model = get_model(file, env, net_width=net_width, model_type="cnn", device=device)
     new_logger = configure("models/temp/", ["stdout", "csv", "tensorboard"])
     model.set_logger(new_logger)
     # Train the agent and display a progress bar
