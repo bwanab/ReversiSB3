@@ -11,7 +11,8 @@ from reversi_ai.reversi import GameHasEndedError
 from reversi_ai.reversiai import ReversiAI
 
 from sb3_contrib import MaskablePPO
-from sb3_contrib.common.maskable.policies import MaskableActorCriticPolicy
+from util.reversi_cnn import ReversiCNN
+#from sb3_contrib.common.maskable.policies import MaskableActorCriticPolicy
 
 import torch as th
 
@@ -19,10 +20,18 @@ EMPTY = 0
 BLACK = 1
 WHITE = -1
 
-def get_model(file, env, net_width=256, learning_rate = 0.0003):
+def get_model(file, env, net_width=256, learning_rate = 0.0003, model_type="cnn"):
     if os.path.isfile(file + ".zip"):
         model = MaskablePPO.load(file, env=env)
-        model.policy = MaskableActorCriticPolicy.load(file + '_policy.zip')
+        #### turns out, this is redundant since policy is always saved with model
+        # model.policy = MaskableActorCriticPolicy.load(file + '_policy.zip')
+    elif model_type == "cnn":
+        policy_kwargs = dict(
+            features_extractor_class=ReversiCNN,
+            features_extractor_kwargs=dict(features_dim=128),
+            normalize_images=False
+            )
+        model = MaskablePPO("CnnPolicy", env, policy_kwargs=policy_kwargs, tensorboard_log=file + ".log")
     else:
         # lrs = lambda x: 0.003
         # net_arch = dict(pi=[128, 512, 64], vf=[128, 512, 64])
@@ -32,17 +41,24 @@ def get_model(file, env, net_width=256, learning_rate = 0.0003):
                      net_arch=dict(pi=[net_width, net_width, net_width, net_width, net_width], vf=[net_width, net_width, net_width, net_width, net_width]))
 
 
-        model = MaskablePPO(MaskableActorCriticPolicy, env, policy_kwargs=policy_kwargs, tensorboard_log=file + ".log", gamma=1.0, learning_rate=learning_rate, ent_coef=0.01)
+        #model = MaskablePPO(MaskableActorCriticPolicy, env, policy_kwargs=policy_kwargs, tensorboard_log=file + ".log", gamma=1.0, learning_rate=learning_rate, ent_coef=0.01)
+        model = MaskablePPO("MlpPolicy", env, policy_kwargs=policy_kwargs, tensorboard_log=file + ".log", gamma=1.0, learning_rate=learning_rate, ent_coef=0.01)
     return model
 
 class Opponent():
+    def __init__(self):
+        self.player = -1
+        
     def get_action(self, env, state):
         pass
 
 class Human(Opponent):
+    def __init__(self):
+        super().__init__()
+
     def get_action(self, env, state):
         render(state)
-        for (score, y, x) in get_scores(state):
+        for (score, y, x) in get_scores(env, state):
             print(f"{'abcdefgh'[x]}{y+1}: {score}")
         while True:
             t = input()
@@ -54,6 +70,7 @@ class Human(Opponent):
 
 class ModelOpponent(Opponent):
     def __init__(self, **kwargs):
+        super().__init__()
         file = kwargs.get('file')
         env = kwargs.get('env')
         net_width=kwargs.get('net_width')
@@ -64,7 +81,7 @@ class ModelOpponent(Opponent):
         self.obs = self.vec_env.reset()
         self.alt_env = copy.deepcopy(self.vec_env.envs[0])
     def alt_get_action(self, env, state):
-        _, player = board_player_from_state(state)
+        player = self.player
         alt_state = copy.copy(state) * player
         self.alt_env.board = alt_state
         # action, _ = self.model.predict(state, action_masks=mask_fn(self.alt_env), deterministic=self.deterministic)
@@ -77,12 +94,18 @@ class ModelOpponent(Opponent):
         return np.array([alt_action])
 
 class RAIOpponent(Opponent):
+    def __init__(self):
+        super().__init__()
+
     def get_action(self, env, state):
-        _, player = board_player_from_state(state)
+        player = self.player
         alt_state = copy.copy(state) * player
         return reversi_ai_action(env, alt_state)
 
 class RandomOpponent(Opponent):
+    def __init__(self):
+        super().__init__()
+
     def get_action(self, env, state):
         return random_action(env, state)
 
@@ -112,7 +135,7 @@ rai_cell_map = {-1: 'w', 0: ' ', 1: 'b'}
 render_cell_map = {-1: 'x', 0: '.', 1: 'o'}
 
 def reversi_ai_action(env, state):
-    board, player, rai_board = build_rai_board(state)
+    board, player, rai_board = build_rai_board(state, env.player)
 
     try:
         rai = ReversiAI()
@@ -125,13 +148,13 @@ def reversi_ai_action(env, state):
         rval = random_action(env, state)
     return np.array(rval)
 
-def build_rai_board(state):
-    board, player = board_player_from_state(state)
+def build_rai_board(state, player):
+    board = state
     rai_board = []
-    for x in range(8):
+    for x in range(board.shape[1]):
         rai_board.append([])
-        for y in range(8):
-            rai_board[x].append(rai_cell_map[board[x, y]])
+        for y in range(board.shape[2]):
+            rai_board[x].append(rai_cell_map[board[0, x, y]])
     return board,player,rai_board
 
 
@@ -214,8 +237,9 @@ def count_players(per_player, board):
 
 def play(model, num_games, opponent, deterministic, verbose):
     vec_env = model.get_env()
-    env = vec_env.envs[0]
-    obs = vec_env.reset()
+    env = vec_env.envs[0].unwrapped
+    # obs = vec_env.reset()
+    obs, _ = env.reset()
     black_wins = 0
 
     if verbose:
@@ -228,15 +252,16 @@ def play(model, num_games, opponent, deterministic, verbose):
 
         per_player = {1: 2, -1: 2}
         while not term:
-            board, player = board_player_from_state(obs[0])
+            board = obs
+            player = env.player
             if verbose:
-                render(obs[0])
-            _,player = board_player_from_state(obs[0])
+                render(board)
+            player = env.player
             if player == -1:
-                action = opponent.get_action(env, obs[0])
+                action = opponent.get_action(env, board)
 
             else:
-                action, probs, actions = get_action(model, obs, mask_fn(env), deterministic=deterministic, verbose=verbose)
+                action, probs, actions = get_action(model, board, mask_fn(env), deterministic=deterministic, verbose=verbose)
                 if verbose:
                     m = th.nn.Softmax(dim=0)
                     print(action, actions, m(probs).detach().numpy())
@@ -244,16 +269,16 @@ def play(model, num_games, opponent, deterministic, verbose):
                 mn = get_move_notation(env, player, action)
                 moves.append(mn)
                 print(mn)
-            obs, rewards, term, info = vec_env.step(action)
+            obs, rewards, term, _truncated, info = env.step(action)
             if verbose:
-                b,_ = board_player_from_state(obs[0])
+                b = obs
                 per_player_diff = count_players(per_player, b)
                 print(per_player_diff)
 
             if term:
-                term_obs = info[0]['terminal_observation']
-                black_score = sum(term_obs == 1)
-                white_score = sum(term_obs == -1)
+                term_obs = info['terminal_observation']
+                black_score = np.sum(term_obs == 1)
+                white_score = np.sum(term_obs == -1)
                 if verbose:
                     print(f"Black: {black_score}, White: {white_score}, actions: {black_score + white_score}, Reward: {rewards[0]}")
                     render(term_obs)
@@ -271,7 +296,7 @@ def alt_play(env, num_games, black_player: Opponent, white_player: Opponent):
         term = False
         obs = env.reset()[0]
         while not term:
-            board, player = board_player_from_state(obs)
+            player = env.player
             if player == 1:
                 action = black_player.get_action(env, obs)
             else:
@@ -304,7 +329,7 @@ def get_pos_score(board, player, action) -> int:
         return False
 
     x, y = np.unravel_index(action, board.shape)
-    if board[x, y] != EMPTY:
+    if board[0, x, y] != EMPTY:
         return 0
 
     for dx in [-1, 0, 1]:  # loop on the 8 directions
@@ -314,20 +339,20 @@ def get_pos_score(board, player, action) -> int:
             xx, yy = x, y
             for count in itertools.count():
                 xx, yy = xx + dx, yy + dy
-                if xx < 0 or xx >= board.shape[0] or yy < 0 or yy >= board.shape[1]:
+                if xx < 0 or xx >= board.shape[1] or yy < 0 or yy >= board.shape[2]:
                     break
-                if not is_index(board, (xx, yy)):
+                if not is_index(board, (0, xx, yy)):
                     break
-                if board[xx, yy] == EMPTY:
+                if board[0, xx, yy] == EMPTY:
                     break
-                if board[xx, yy] == -player:
+                if board[0, xx, yy] == -player:
                     continue
                 if count:  # and is player
                     return count
                 break
     return 0
 
-def get_scores(state):
+def get_scores(env, state):
     """Get all valid locations for the current state.
 
     Parameters
@@ -338,12 +363,13 @@ def get_scores(state):
     ----
     valid : np.array     current valid place for the player
     """
-    board, player = board_player_from_state(state)
+    board = state
+    player = env.player
     max = len(board) - 1
     scores = []
-    for x in range(board.shape[0]):
-        for y in range(board.shape[1]):
-            score = get_pos_score(board, player, np.ravel_multi_index((x, y), board.shape))
+    for x in range(board.shape[1]):
+        for y in range(board.shape[2]):
+            score = get_pos_score(board, player, np.ravel_multi_index((0, x, y), board.shape))
             # add 2 for getting a corner, 1 for getting an edge
             if score > 0:
                 if ((x == 0) or (x == max)):

@@ -1,13 +1,11 @@
 import gymnasium as gym
 import boardgame2
-from util.util import reversi_ai_action, random_action, board_player_from_state, get_opponent, play, mask_fn, ModelOpponent, RandomOpponent, get_model
+from util.reversi import ReversiEnvCNN
+from util.util import get_opponent, play, mask_fn, ModelOpponent, RandomOpponent, get_model
 
 import numpy as np
 import os.path
 from time import time
-
-#from stable_baselines3 import DQN
-#from stable_baselines3.common.evaluation import evaluate_policy
 
 import torch as th
 from sb3_contrib.common.wrappers import ActionMasker
@@ -18,12 +16,12 @@ from stable_baselines3.common.callbacks import BaseCallback, EveryNTimesteps, Ch
 def round_trip(training_env, opponent):
     env = training_env.envs[0]
     state = env.board
-    _, player = board_player_from_state(state)
+    player = env.player
     while player == -1:
         action = opponent.get_action(env, state)
         obs, rewards, term, info = training_env.step(action)
         state = obs[0]
-        _, player = board_player_from_state(state)
+        player = env.player
     return True
 
 class FullRoundTripCallback(BaseCallback):
@@ -69,7 +67,7 @@ class PlayCallback(BaseCallback):
         black_wins = play(self.model, self.episodes, self.opponent, True, self.verbose)
         self.logger.record(key="black_wins", value=black_wins)
         self.model.save(file)
-        self.model.policy.save(file + "_policy.zip")
+        #self.model.policy.save(file + "_policy.zip")
         self.frtCB.update_opponent()
         return True
 
@@ -82,22 +80,22 @@ if __name__ == '__main__':
                     description = 'meant to train a reversi ml, current just doing tests',
                     epilog = 'Text at the bottom of help')
 
-    parser.add_argument("-p", "--epochs", default=1)
-    parser.add_argument("-e", "--episodes", default=100000)
-    parser.add_argument("-m", "--model", default = "reversi_ppo")
-    parser.add_argument("-o", "--opponent", default="Model") # training opponent
+    parser.add_argument("-p", "--epochs", default=200)
+    parser.add_argument("-e", "--episodes", default=200)
+    parser.add_argument("-m", "--model", default = "dork3")
+    parser.add_argument("-o", "--opponent", default="Random") # training opponent
     parser.add_argument("-t", "--test_opponent", default="Random") # test opponent
     parser.add_argument("-w", "--net_width", default="512")
     args = parser.parse_args()
 
     
-    env = ActionMasker(gym.make("Reversi-v0"), mask_fn)  # Wrap to enable masking
+    env = ActionMasker(ReversiEnvCNN.build_reversi(), mask_fn)  # Wrap to enable masking
 
-    file = "models/" + args.model + "_5layer_03LR_" + args.net_width
+    file = "models/" + args.model + "_CNN_test1_" + args.net_width
     net_width = int(args.net_width)
     # opponent = get_opponent(args.opponent, file=file, env=env, net_width=net_width)
     
-    model = get_model(file, env, net_width=net_width)
+    model = get_model(file, env, net_width=net_width, model_type="cnn")
     new_logger = configure("models/temp/", ["stdout", "csv", "tensorboard"])
     model.set_logger(new_logger)
     # Train the agent and display a progress bar
@@ -112,4 +110,5 @@ if __name__ == '__main__':
         model.learn(total_timesteps=episodes, progress_bar=True, callback=[frtCB, everyNCB])
         # Save the agent
         model.save(file)
-        model.policy.save(file + "_policy.zip")
+        ## this is redundant until training is done:
+        # model.policy.save(file + "_policy.zip")

@@ -1,4 +1,5 @@
 import itertools
+import copy
 import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
@@ -221,7 +222,10 @@ class ReversiEnvCNN(gym.Env):
             state = self.get_next_state(state, action)
             winner = self.get_winner(state)
             if winner is not None:
-                return state, winner, True, {}
+                terminal_state = copy.deepcopy(state)
+                state, info = self.reset()
+                info['terminal_observation'] = terminal_state
+                return state, winner, True, info
             if self.has_valid(state):
                 break
             action = self.PASS
