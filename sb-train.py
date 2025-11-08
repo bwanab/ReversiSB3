@@ -1,7 +1,8 @@
 import gymnasium as gym
-import boardgame2
 from util.reversi import ReversiEnvCNN
-from util.util import get_opponent, play, mask_fn, ModelOpponent, RandomOpponent, get_model
+from util.util import mask_fn, get_model
+from util.play import play
+from util.opponents import get_opponent, RandomOpponent
 
 import numpy as np
 import os.path

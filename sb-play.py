@@ -1,7 +1,8 @@
 
 import gymnasium as gym
 from util.reversi import ReversiEnvCNN
-from util.util import get_opponent, play
+from util.play import play
+from util.opponents import get_opponent
 
 import torch
 torch.device("cpu") # torch.device("mps")
