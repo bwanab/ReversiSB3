@@ -407,7 +407,7 @@ def is_index(board: np.array, location) -> str:
     if isinstance(location, int) or isinstance(location, np.integer):
         if location < 0 or location >= board.size:
             return False
-        x, y = np.unravel_index(location, board.shape)
+        _, x, y = np.unravel_index(location, board.shape)
     else:
         _, x, y = location
 

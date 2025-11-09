@@ -5,22 +5,7 @@ import gymnasium as gym
 from gymnasium import spaces
 from gymnasium.envs.registration import register
 from util.util import is_index, EMPTY, BLACK, WHITE
-
-
-class CanonicalReversiObservation(gym.ObservationWrapper):
-    def __init__(self, env):
-        super().__init__(env)
-    
-    def observation(self, obs):
-        # obs comes FROM your original environment (board, player tuple)
-        board = obs
-        player = self.player
-        
-        # Transform and return just the board (matching the output space above)
-        if player == -1:
-            board = -board
-        
-        return board
+from util.opponents import RandomOpponent, get_opponent
 
 class ReversiEnvCNN(gym.Env):
 
@@ -67,10 +52,13 @@ class ReversiEnvCNN(gym.Env):
         self.observation_space = spaces.Box(low=-1, high=1, shape=self.board.shape, dtype=np.int8)
         self.action_space = spaces.Discrete(board_shape * board_shape)
         self.player = BLACK
+        self.actual_player = BLACK
+        self.opponent = get_opponent("Random")
 
     # static 
     def build_reversi():
-        return gym.make("ReversiCNN-v0")
+        env = gym.make("ReversiCNN-v0")
+        return env
     
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed, options=options)
@@ -81,6 +69,7 @@ class ReversiEnvCNN(gym.Env):
         board[0, x - 1, y - 1] = board[0, x, y] = -1
         board[0, x - 1, y] = board[0, x, y - 1] = 1
         self.player = BLACK
+        self.actual_player = BLACK
         return board, {}
 
     def get_sample(self, state):
@@ -105,14 +94,14 @@ class ReversiEnvCNN(gym.Env):
         valid = np.zeros_like(board, dtype=np.int8)
         for x in range(board.shape[1]):
             for y in range(board.shape[2]):
-                valid[0, x, y] = self.is_valid(state, np.array([0, x, y]))
+                valid[0, x, y] = self.is_valid(state, self.player, np.array([0, x, y]))
         return valid.flatten()
 
     def all_valid_actions(self, state):
         a = self.get_valid(state)
         return np.where(a == 1)[0]
 
-    def has_valid(self, state) -> bool:
+    def has_valid(self, state, player) -> bool:
         """Check whether there are valid locations for current state.
 
         Parameters
@@ -126,11 +115,11 @@ class ReversiEnvCNN(gym.Env):
         board = state
         for x in range(board.shape[1]):
             for y in range(board.shape[2]):
-                if self.is_valid(state, np.array([0, x, y])):
+                if self.is_valid(state, player, np.array([0, x, y])):
                     return True
         return False
 
-    def is_valid(self, state, action) -> bool:
+    def is_valid(self, state, player, action) -> bool:
         """
         Parameters
         ----
@@ -146,7 +135,6 @@ class ReversiEnvCNN(gym.Env):
             return True
         
         board = state
-        player = self.player
 
         if not is_index(board, action):
             return False
@@ -197,6 +185,14 @@ class ReversiEnvCNN(gym.Env):
         m_act = (0, action // 8, action % 8)
         next_state, reward, termination, info = self.next_step(self.board, m_act)
         self.board = next_state
+        if termination:
+            # if terminated on BLACK's move return now
+            return next_state, reward, termination, False, info
+        ## at this point the player has been set to WHITE (-1)
+        f_act = self.opponent.get_action(self, self.board)
+        f_act = (0, f_act // 8, f_act % 8)
+        next_state, reward, termination, info = self.next_step(self.board, f_act)
+        self.board = next_state
         return next_state, reward, termination, False, info
 
     def next_step(self, state, action):
@@ -214,7 +210,7 @@ class ReversiEnvCNN(gym.Env):
         termination : bool           whether the game end or not
         info : {'valid' : np.array}    a dict shows the valid place for the next player
         """
-        if not self.is_valid(state, action):
+        if not self.is_valid(state, self.player, action):
             action = self.illegal_equivalent_action
         if np.array_equal(action, self.RESIGN):
             return state, -self.player, True, {}
@@ -226,7 +222,7 @@ class ReversiEnvCNN(gym.Env):
                 state, info = self.reset()
                 info['terminal_observation'] = terminal_state
                 return state, winner, True, info
-            if self.has_valid(state):
+            if self.has_valid(state, self.player):
                 break
             action = self.PASS
         return state, 0., False, {}
@@ -250,7 +246,7 @@ class ReversiEnvCNN(gym.Env):
             self.player = -self.player
             return board
 
-        if self.is_valid(state, action):
+        if self.is_valid(state, player, action):
             _, x, y = action
             board[0, x, y] = player
             for dx in [-1, 0, 1]:  # loop on the 8 directions
@@ -290,7 +286,7 @@ class ReversiEnvCNN(gym.Env):
         """
         board  = state
         for player in [BLACK, WHITE]:
-            if self.has_valid(board):
+            if self.has_valid(board, player):
                 return None
         if np.sum(board == 1) == np.sum(board == -1):
             return EMPTY

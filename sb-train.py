@@ -65,14 +65,13 @@ class FullRoundTripCallback(BaseCallback):
 
 
 class PlayCallback(BaseCallback):
-    def __init__(self, model, file, frtCB, episodes = 100, opponent = RandomOpponent, verbose: bool = False):
+    def __init__(self, model, file, episodes = 100, opponent = RandomOpponent, verbose: bool = False):
         self.episodes = episodes
         self.verbose = verbose
         self.opponent = opponent
         self.model = model
         self.file = file
         self.logger = Logger("./" + file + ".log", TensorBoardOutputFormat("./" + file + ".log"))
-        self.frtCB = frtCB
         super(PlayCallback, self).__init__(verbose)
 
     def _on_step(self) -> bool:
@@ -94,7 +93,7 @@ if __name__ == '__main__':
 
     parser.add_argument("-p", "--epochs", default=20)
     parser.add_argument("-e", "--episodes", default=100)
-    parser.add_argument("-m", "--model", default = "dork4")
+    parser.add_argument("-m", "--model", default = "dork5")
     parser.add_argument("-o", "--opponent", default="Random") # training opponent
     parser.add_argument("-t", "--test_opponent", default="Random") # test opponent
     parser.add_argument("-w", "--net_width", default="512")
@@ -112,13 +111,13 @@ if __name__ == '__main__':
     # Train the agent and display a progress bar
     episodes = int(args.episodes) * 60
     epochs = int(args.epochs)
-    frtCB = FullRoundTripCallback(file, model.get_env(), net_width, episodes=episodes, opponentName=args.opponent)
+    # frtCB = FullRoundTripCallback(file, model.get_env(), net_width, episodes=episodes, opponentName=args.opponent)
     for i in range(epochs):
         print(f"--------- Epoch: {i + 1} -----------")
         test_opponent = get_opponent(args.test_opponent, file=file, env=env, net_width=net_width)
-        playCB = PlayCallback(model, file, frtCB, 100, test_opponent, False)
+        playCB = PlayCallback(model, file, 100, test_opponent, False)
         everyNCB = EveryNTimesteps(n_steps=10000, callback=playCB)
-        model.learn(total_timesteps=episodes, progress_bar=True, callback=[frtCB, everyNCB])
+        model.learn(total_timesteps=episodes, progress_bar=True, callback=[everyNCB])
         # Save the agent
         model.save(file)
         ## this is redundant until training is done:
