@@ -20,7 +20,7 @@ EMPTY = 0
 BLACK = 1
 WHITE = -1
 
-def get_model(file, env, net_width=256, learning_rate = 0.0003, model_type="cnn", device="cpu"):
+def get_model(file, env, net_width=256, learning_rate = 1e-4, model_type="cnn", device="cpu"):
     if os.path.isfile(file + ".zip"):
         model = MaskablePPO.load(file, env=env)
         #### turns out, this is redundant since policy is always saved with model
@@ -36,8 +36,14 @@ def get_model(file, env, net_width=256, learning_rate = 0.0003, model_type="cnn"
                             policy_kwargs=policy_kwargs, 
                             tensorboard_log=file + ".log",
                             device=device,
-                            batch_size=128 if device == "cpu" else 256,
-                            n_steps = 2048
+                            batch_size=128,
+                            n_steps = 512,
+                            learning_rate=learning_rate,
+                            n_epochs=15,
+                            gae_lambda=0.95,
+                            gamma=0.98,
+                            ent_coef=0.01,
+                            verbose=1
         )
     else:
         # lrs = lambda x: 0.003

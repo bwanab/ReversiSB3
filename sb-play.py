@@ -11,7 +11,7 @@ from sb3_contrib import MaskablePPO
 from sb3_contrib.common.maskable.policies import MaskableActorCriticPolicy
 
 def play_games(file, num_games=100, verbose=False, opponentName="Random", deterministic=False):
-    env = ReversiEnvCNN.build_reversi()
+    env = ReversiEnvCNN.build_reversi(opponent=opponentName, verbose=verbose)
     opponent = get_opponent(opponentName, file=file, env=env)
 
     model = MaskablePPO.load(file, env=env)
@@ -26,10 +26,10 @@ if __name__ == '__main__':
                     description = 'meant to train a reversi ml, current just doing tests',
                     epilog = 'Text at the bottom of help')
 
-    parser.add_argument("-e", "--episodes", default=500)
-    parser.add_argument("-m", "--model", default = "dork7_CNN_test")
+    parser.add_argument("-e", "--episodes", default=100)
+    parser.add_argument("-m", "--model", default = "dork8_CNN_test")
     parser.add_argument("-o", "--opponent", default="Random")
-    parser.add_argument("-d", "--deterministic", action='store_true')
+    parser.add_argument("-d", "--non_deterministic", action='store_true')
     parser.add_argument("-v", "--verbose", action='store_true')
     args = parser.parse_args()
 
@@ -37,7 +37,8 @@ if __name__ == '__main__':
     n_games = int(args.episodes)
     # black_wins = play_games("models/" + args.model, n_games, verbose=True, opponentName=args.opponent,deterministic=args.deterministic)
     start = time.time()
-    black_wins = play_games("models/" + args.model, n_games, verbose=bool(args.verbose), opponentName=args.opponent,deterministic=args.deterministic)
+    deterministic = not bool(args.non_deterministic)
+    black_wins = play_games("models/" + args.model, n_games, verbose=bool(args.verbose), opponentName=args.opponent,deterministic=deterministic)
     end = time.time()
     print(f"time elapsed: {end - start}")
     print(f"Black wins: {100 * black_wins / n_games}%")

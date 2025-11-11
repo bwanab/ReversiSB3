@@ -59,7 +59,8 @@ class RAIOpponent(Opponent):
 
     def get_action(self, env, state):
         player = self.player
-        alt_state = copy.copy(state) * player
+        # alt_state = copy.copy(state) * player
+        alt_state = copy.deepcopy(state)
         return reversi_ai_action(env, alt_state)
 
 class RandomOpponent(Opponent):
@@ -102,7 +103,7 @@ def reversi_ai_action(env, state):
         coord = rai.get_next_move(rai_board, r_ai_player)
         x = coord.x
         y = coord.y
-        rval = [np.ravel_multi_index([x, y], env.board_shape)]
+        rval = np.ravel_multi_index([0, x, y], env.board.shape)
     except GameHasEndedError:
         rval = random_action(env, state)
     return np.array(rval)

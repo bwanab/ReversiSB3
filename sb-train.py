@@ -25,8 +25,6 @@ else:
     device = "cpu"
     print("✓ Using CPU")
 
-device = "cpu"
-
 def round_trip(training_env, opponent):
     env = training_env.envs[0]
     state = env.board
@@ -79,9 +77,7 @@ class PlayCallback(BaseCallback):
     def _on_step(self) -> bool:
         black_wins = play(self.model, self.episodes, self.opponent, True, self.verbose)
         self.logger.record(key="black_wins", value=black_wins)
-        self.model.save(file)
-        #self.model.policy.save(file + "_policy.zip")
-        self.frtCB.update_opponent()
+        self.model.save(self.file)
         return True
 
 
@@ -94,8 +90,8 @@ if __name__ == '__main__':
                     epilog = 'Text at the bottom of help')
 
     parser.add_argument("-p", "--epochs", default=20)
-    parser.add_argument("-e", "--episodes", default=100)
-    parser.add_argument("-m", "--model", default = "dork7")
+    parser.add_argument("-e", "--episodes", default=100000)
+    parser.add_argument("-m", "--model", default = "dork8")
     parser.add_argument("-o", "--opponent", default="Random") # training opponent
     parser.add_argument("-t", "--test_opponent", default="Random") # test opponent
     parser.add_argument("-w", "--net_width", default="512")
@@ -111,16 +107,12 @@ if __name__ == '__main__':
     new_logger = configure("models/temp/", ["stdout", "csv", "tensorboard"])
     model.set_logger(new_logger)
     # Train the agent and display a progress bar
-    episodes = int(args.episodes) * 60
+    episodes = int(args.episodes)
     epochs = int(args.epochs)
     # frtCB = FullRoundTripCallback(file, model.get_env(), net_width, episodes=episodes, opponentName=args.opponent)
-    for i in range(epochs):
-        print(f"--------- Epoch: {i + 1} -----------")
-        test_opponent = get_opponent(args.test_opponent, file=file, env=env, net_width=net_width)
-        playCB = PlayCallback(model, file, 100, test_opponent, False)
-        everyNCB = EveryNTimesteps(n_steps=10000, callback=playCB)
-        model.learn(total_timesteps=episodes, progress_bar=True, callback=[everyNCB])
-        # Save the agent
-        model.save(file)
-        ## this is redundant until training is done:
-        # model.policy.save(file + "_policy.zip")
+    test_opponent = get_opponent(args.test_opponent, file=file, env=env, net_width=net_width)
+    playCB = PlayCallback(model, file, 100, test_opponent, False)
+    everyNCB = EveryNTimesteps(n_steps=10000, callback=playCB)
+    model.learn(total_timesteps=episodes, progress_bar=True, callback=[everyNCB])
+    # Save the agent
+    model.save(file)

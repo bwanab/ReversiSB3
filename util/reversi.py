@@ -4,7 +4,7 @@ import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
 from gymnasium.envs.registration import register
-from util.util import is_index, EMPTY, BLACK, WHITE
+from util.util import is_index, EMPTY, BLACK, WHITE, render
 from util.opponents import RandomOpponent, get_opponent
 
 class ReversiEnvCNN(gym.Env):
@@ -18,7 +18,7 @@ class ReversiEnvCNN(gym.Env):
 
     def __init__(self, board_shape=8, illegal_action_mode: str='resign',
             render_characters: str='+ox', allow_pass: bool=True, 
-            render_mode='human'):
+            render_mode='human', opponent = "Random", verbose=False):
         """Create a board game.
 
         Parameters
@@ -53,11 +53,12 @@ class ReversiEnvCNN(gym.Env):
         self.action_space = spaces.Discrete(board_shape * board_shape)    # -8 results in self.PASS
         self.player = BLACK
         self.actual_player = BLACK
-        self.opponent = get_opponent("Random")
+        self.opponent = get_opponent(opponent)
+        self.verbose = verbose
 
     # static 
-    def build_reversi():
-        env = gym.make("ReversiCNN-v0")
+    def build_reversi(opponent="Random", verbose=False):
+        env = gym.make("ReversiCNN-v0", opponent=opponent, verbose=verbose)
         return env
     
     def reset(self, *, seed=None, options=None):
@@ -194,8 +195,10 @@ class ReversiEnvCNN(gym.Env):
             # if terminated on BLACK's move return now
             return next_state, reward, termination, False, info
         ## at this point the player has been set to WHITE (-1)
-        if self.player == 1:
+        if self.player == BLACK:
             print("something's wrong")
+        if self.verbose:
+            render(self.board)
         while len(self._all_valid_actions(self.board, WHITE)) > 0:
             f_act = self.opponent.get_action(self, self.board)
             f_act = (0, f_act // 8, f_act % 8)
@@ -204,8 +207,8 @@ class ReversiEnvCNN(gym.Env):
                 return next_state, reward, termination, False, info
             if len(self._all_valid_actions(next_state, BLACK)) > 0:
                 break
-            self.player = -1
-        self.player = 1
+            self.player = WHITE
+        self.player = BLACK
         return next_state, reward, termination, False, info
 
     def next_step(self, state, action):
