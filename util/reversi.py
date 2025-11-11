@@ -17,7 +17,7 @@ class ReversiEnvCNN(gym.Env):
     RESIGN = np.array([0, -1, -1])
 
     def __init__(self, board_shape=8, illegal_action_mode: str='resign',
-            render_characters: str='+ox', allow_pass: bool=False, 
+            render_characters: str='+ox', allow_pass: bool=True, 
             render_mode='human'):
         """Create a board game.
 
@@ -50,7 +50,7 @@ class ReversiEnvCNN(gym.Env):
         assert self.board.size > 1  # Invalid board shape
 
         self.observation_space = spaces.Box(low=-1, high=1, shape=self.board.shape, dtype=np.int8)
-        self.action_space = spaces.Discrete(board_shape * board_shape)
+        self.action_space = spaces.Discrete(board_shape * board_shape)    # -8 results in self.PASS
         self.player = BLACK
         self.actual_player = BLACK
         self.opponent = get_opponent("Random")
@@ -80,6 +80,9 @@ class ReversiEnvCNN(gym.Env):
             return a[np.random.randint(len(a))]
 
     def get_valid(self, state):
+        return self._get_valid(state, self.player)
+    
+    def _get_valid(self, state, player):
         """Get all valid locations for the current state.
 
         Parameters
@@ -94,11 +97,14 @@ class ReversiEnvCNN(gym.Env):
         valid = np.zeros_like(board, dtype=np.int8)
         for x in range(board.shape[1]):
             for y in range(board.shape[2]):
-                valid[0, x, y] = self.is_valid(state, self.player, np.array([0, x, y]))
+                valid[0, x, y] = self.is_valid(state, player, np.array([0, x, y]))
         return valid.flatten()
 
     def all_valid_actions(self, state):
-        a = self.get_valid(state)
+        return self._all_valid_actions(state, self.player)
+    
+    def _all_valid_actions(self, state, player):
+        a = self._get_valid(state, player)
         return np.where(a == 1)[0]
 
     def has_valid(self, state, player) -> bool:
@@ -184,15 +190,22 @@ class ReversiEnvCNN(gym.Env):
         """
         m_act = (0, action // 8, action % 8)
         next_state, reward, termination, info = self.next_step(self.board, m_act)
-        self.board = next_state
         if termination:
             # if terminated on BLACK's move return now
             return next_state, reward, termination, False, info
         ## at this point the player has been set to WHITE (-1)
-        f_act = self.opponent.get_action(self, self.board)
-        f_act = (0, f_act // 8, f_act % 8)
-        next_state, reward, termination, info = self.next_step(self.board, f_act)
-        self.board = next_state
+        if self.player == 1:
+            print("something's wrong")
+        while len(self._all_valid_actions(self.board, WHITE)) > 0:
+            f_act = self.opponent.get_action(self, self.board)
+            f_act = (0, f_act // 8, f_act % 8)
+            next_state, reward, termination, info = self.next_step(self.board, f_act)
+            if termination:
+                return next_state, reward, termination, False, info
+            if len(self._all_valid_actions(next_state, BLACK)) > 0:
+                break
+            self.player = -1
+        self.player = 1
         return next_state, reward, termination, False, info
 
     def next_step(self, state, action):
@@ -214,17 +227,15 @@ class ReversiEnvCNN(gym.Env):
             action = self.illegal_equivalent_action
         if np.array_equal(action, self.RESIGN):
             return state, -self.player, True, {}
-        while True:
-            state = self.get_next_state(state, action)
-            winner = self.get_winner(state)
-            if winner is not None:
-                terminal_state = copy.deepcopy(state)
-                state, info = self.reset()
-                info['terminal_observation'] = terminal_state
-                return state, winner, True, info
-            if self.has_valid(state, self.player):
-                break
-            action = self.PASS
+        
+        state = self.get_next_state(state, action)
+        winner = self.get_winner(state)
+        if winner is not None:
+            terminal_state = copy.deepcopy(state)
+            state, info = self.reset()
+            info['terminal_observation'] = terminal_state
+            return state, winner, True, info
+
         return state, 0., False, {}
 
     def get_next_state(self, state, action):
@@ -243,7 +254,7 @@ class ReversiEnvCNN(gym.Env):
         player = self.player
 
         if np.all(action == self.PASS):
-            self.player = -self.player
+            #self.player = -self.player
             return board
 
         if self.is_valid(state, player, action):

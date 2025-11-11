@@ -26,8 +26,8 @@ if __name__ == '__main__':
                     description = 'meant to train a reversi ml, current just doing tests',
                     epilog = 'Text at the bottom of help')
 
-    parser.add_argument("-e", "--episodes", default=100)
-    parser.add_argument("-m", "--model", default = "dork5_CNN_test")
+    parser.add_argument("-e", "--episodes", default=500)
+    parser.add_argument("-m", "--model", default = "dork7_CNN_test")
     parser.add_argument("-o", "--opponent", default="Random")
     parser.add_argument("-d", "--deterministic", action='store_true')
     parser.add_argument("-v", "--verbose", action='store_true')

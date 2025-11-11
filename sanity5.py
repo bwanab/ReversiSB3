@@ -1,5 +1,5 @@
 from util.util import render, mask_fn
-from util.reversi import ReversiEnvCNN, CanonicalReversiObservation
+from util.reversi import ReversiEnvCNN
 from util.reversi_cnn import ReversiCNN
 from sb3_contrib import MaskablePPO
 import numpy as np

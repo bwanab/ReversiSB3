@@ -87,9 +87,9 @@ return a random action from the valid possible actions
 def random_action(env, state):
     actions = env.all_valid_actions(state)
     if len(actions) == 0:
-        return np.array([])
+        return np.array()
     else:
-        return np.array([random.choice(actions)])
+        return np.array(random.choice(actions))
 
 rai_cell_map = {-1: 'w', 0: ' ', 1: 'b'}
 

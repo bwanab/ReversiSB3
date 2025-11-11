@@ -24,15 +24,10 @@ def play(model, num_games, opponent, deterministic, verbose):
             player = env.player
             if verbose:
                 render(board)
-            player = env.player
-            if player == -1:
-                action = opponent.get_action(env, board)
-
-            else:
-                action, probs, actions = get_action(model, board, mask_fn(env), deterministic=deterministic, verbose=verbose)
-                if verbose:
-                    m = torch.nn.Softmax(dim=0)
-                    print(action, actions, m(probs).detach().numpy())
+            action, probs, actions = get_action(model, board, mask_fn(env), deterministic=deterministic, verbose=verbose)
+            if verbose:
+                m = torch.nn.Softmax(dim=0)
+                print(action, actions, m(probs).detach().numpy())
             if verbose:
                 mn = get_move_notation(env, player, action)
                 moves.append(mn)
@@ -48,7 +43,7 @@ def play(model, num_games, opponent, deterministic, verbose):
                 black_score = np.sum(term_obs == 1)
                 white_score = np.sum(term_obs == -1)
                 if verbose:
-                    print(f"Black: {black_score}, White: {white_score}, actions: {black_score + white_score}, Reward: {rewards[0]}")
+                    print(f"Black: {black_score}, White: {white_score}, actions: {black_score + white_score}, Reward: {rewards}")
                     render(term_obs)
                     moves_str = "".join(moves)
                     print(moves_str)

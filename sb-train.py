@@ -25,6 +25,8 @@ else:
     device = "cpu"
     print("✓ Using CPU")
 
+device = "cpu"
+
 def round_trip(training_env, opponent):
     env = training_env.envs[0]
     state = env.board
@@ -93,7 +95,7 @@ if __name__ == '__main__':
 
     parser.add_argument("-p", "--epochs", default=20)
     parser.add_argument("-e", "--episodes", default=100)
-    parser.add_argument("-m", "--model", default = "dork5")
+    parser.add_argument("-m", "--model", default = "dork7")
     parser.add_argument("-o", "--opponent", default="Random") # training opponent
     parser.add_argument("-t", "--test_opponent", default="Random") # test opponent
     parser.add_argument("-w", "--net_width", default="512")
