@@ -1,4 +1,4 @@
-from util.util import render, get_scores, get_model, get_action, mask_fn
+from util.util import render, get_scores, get_model, mask_fn, BLACK
 import copy
 import numpy as np
 import random
@@ -31,27 +31,19 @@ class Human(Opponent):
 class ModelOpponent(Opponent):
     def __init__(self, **kwargs):
         super().__init__()
-        file = kwargs.get('file')
+        file = kwargs.get('opponent_model')
         env = kwargs.get('env')
         net_width=kwargs.get('net_width')
-        self.deterministic = kwargs.get('deterministic', False)
         self.verbose = kwargs.get('verbose', False)
         self.model = get_model(file, env, net_width=net_width)
-        self.vec_env = self.model.get_env()
-        self.obs = self.vec_env.reset()
-        self.alt_env = copy.deepcopy(self.vec_env.envs[0])
-    def alt_get_action(self, env, state):
-        player = self.player
-        alt_state = copy.copy(state) * player
-        self.alt_env.board = alt_state
-        # action, _ = self.model.predict(state, action_masks=mask_fn(self.alt_env), deterministic=self.deterministic)
-        action, _, _ = get_action(self.model, alt_state, mask_fn(self.alt_env), deterministic=self.deterministic, verbose=self.verbose)
-        return action
+        self.alt_env = copy.deepcopy(env)
+        self.alt_env.player = BLACK
+
     def get_action(self, env, state):
-        #action, _ = self.model.predict(state, action_masks=mask_fn(env), deterministic=self.deterministic)
-        #action, _ = self.model.predict(state, action_masks=mask_fn(env), deterministic=True)
-        alt_action = self.alt_get_action(env, state)
-        return np.array([alt_action])
+        alt_state = state * self.player
+        self.alt_env.board = alt_state
+        action, _ = self.model.predict(alt_state, action_masks=mask_fn(self.alt_env), deterministic=False)
+        return np.array(action)
 
 class RAIOpponent(Opponent):
     def __init__(self):
@@ -70,6 +62,7 @@ class RandomOpponent(Opponent):
     def get_action(self, env, state):
         return random_action(env, state)
 
+opponent_map = {}
 def get_opponent(s, **kwargs):
     if s == "Random":
         opponent = RandomOpponent()
@@ -78,7 +71,11 @@ def get_opponent(s, **kwargs):
     elif s == "Human":
         opponent = Human()
     else:
-        opponent = ModelOpponent(**kwargs)
+        file = kwargs.get("opponent_model")
+        opponent = opponent_map.get(file)
+        if opponent is None:
+            opponent = ModelOpponent(**kwargs)
+            opponent_map[file] = opponent
     return opponent
 
 

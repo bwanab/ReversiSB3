@@ -5,6 +5,7 @@ import os
 import copy
 import csv
 import itertools
+from typing import Callable
 
 import gymnasium as gym
 from reversi_ai.reversi import GameHasEndedError
@@ -20,7 +21,18 @@ EMPTY = 0
 BLACK = 1
 WHITE = -1
 
-def get_model(file, env, net_width=256, learning_rate = 1e-4, model_type="cnn", device="cpu"):
+def linear_schedule(initial_value: float) -> Callable[[float], float]:
+    def func(progress_remaining: float) -> float:
+        return progress_remaining * initial_value
+    return func
+
+def slow_entropy_decay(initial_value: float) -> Callable[[float], float]:
+    def func(progress_remaining: float) -> float:
+        return initial_value * (0.3 + 0.7 * progress_remaining)
+    return func
+
+
+def get_model(file, env, net_width=256, learning_rate = 5e-5, model_type="cnn", device="cpu"):
     if os.path.isfile(file + ".zip"):
         model = MaskablePPO.load(file, env=env)
         #### turns out, this is redundant since policy is always saved with model
@@ -37,12 +49,13 @@ def get_model(file, env, net_width=256, learning_rate = 1e-4, model_type="cnn", 
                             tensorboard_log=file + ".log",
                             device=device,
                             batch_size=128,
-                            n_steps = 512,
+                            n_steps = 1024,
                             learning_rate=learning_rate,
+                            ent_coef=0.02,
                             n_epochs=15,
                             gae_lambda=0.95,
                             gamma=0.98,
-                            ent_coef=0.01,
+                            clip_range=0.01,
                             verbose=1
         )
     else:
@@ -154,7 +167,7 @@ def get_pos_score(board, player, action) -> int:
     if not is_index(board, action):
         return False
 
-    x, y = np.unravel_index(action, board.shape)
+    _, x, y = np.unravel_index(action, board.shape)
     if board[0, x, y] != EMPTY:
         return 0
 
@@ -193,23 +206,25 @@ def get_scores(env, state):
     player = env.player
     max = len(board) - 1
     scores = []
-    for x in range(board.shape[1]):
-        for y in range(board.shape[2]):
-            score = get_pos_score(board, player, np.ravel_multi_index((0, x, y), board.shape))
-            # add 2 for getting a corner, 1 for getting an edge
-            if score > 0:
+    # for x in range(board.shape[1]):
+    #     for y in range(board.shape[2]):
+    for action in env.all_valid_actions(board):
+        score = get_pos_score(board, player, action)
+        # add 2 for getting a corner, 1 for getting an edge
+        _, x, y = np.unravel_index(action, board.shape)
+        if score > 0:
+            if ((x == 0) or (x == max)):
+                if ((y == 0) or (y == max)):
+                    score += 2
+                else:
+                    score += 1
+            elif ((y == 0) or (y == max)):
                 if ((x == 0) or (x == max)):
-                    if ((y == 0) or (y == max)):
-                        score += 2
-                    else:
-                        score += 1
-                elif ((y == 0) or (y == max)):
-                    if ((x == 0) or (x == max)):
-                        score += 2
-                    else:
-                        score += 1
+                    score += 2
+                else:
+                    score += 1
 
-                scores.append((score, x, y))
+            scores.append((score, x, y))
     return sorted(scores, reverse=True)
 
 def is_index(board: np.array, location) -> str:

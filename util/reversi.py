@@ -18,7 +18,7 @@ class ReversiEnvCNN(gym.Env):
 
     def __init__(self, board_shape=8, illegal_action_mode: str='resign',
             render_characters: str='+ox', allow_pass: bool=True, 
-            render_mode='human', opponent = "Random", verbose=False):
+            render_mode='human', opponent = "Random", opponent_model=None, verbose=False):
         """Create a board game.
 
         Parameters
@@ -53,13 +53,11 @@ class ReversiEnvCNN(gym.Env):
         self.action_space = spaces.Discrete(board_shape * board_shape)    # -8 results in self.PASS
         self.player = BLACK
         self.actual_player = BLACK
-        self.opponent = get_opponent(opponent)
+        self.opponent = get_opponent(opponent, opponent_model=opponent_model, env=self)
         self.verbose = verbose
 
-    # static 
-    def build_reversi(opponent="Random", verbose=False):
-        env = gym.make("ReversiCNN-v0", opponent=opponent, verbose=verbose)
-        return env
+    def set_opponent(self, opponent, opponent_model):
+        self.opponent = get_opponent(opponent, opponent_model=opponent_model, env=self)
     
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed, options=options)
@@ -175,11 +173,13 @@ class ReversiEnvCNN(gym.Env):
         return False
 
     def step(self, action):
-        """See gym.Env.step().
+        """
 
         Parameters
         ----
-        action : np.array    location
+        action : np.array    integer
+
+        The assumption here is this is always called with self.player == BLACK.
 
         Returns
         ----
@@ -189,27 +189,54 @@ class ReversiEnvCNN(gym.Env):
         truncation : bool=False
         info : dict={}
         """
+        assert(self.player == BLACK)
         m_act = (0, action // 8, action % 8)
         next_state, reward, termination, info = self.next_step(self.board, m_act)
         if termination:
             # if terminated on BLACK's move return now
             return next_state, reward, termination, False, info
         ## at this point the player has been set to WHITE (-1)
-        if self.player == BLACK:
-            print("something's wrong")
+        assert(self.player == WHITE)
         if self.verbose:
-            render(self.board)
+            # render(self.board)
+            pass
+        # Here we will first ensure that WHITE has a valid move before proceeding.
         while len(self._all_valid_actions(self.board, WHITE)) > 0:
             f_act = self.opponent.get_action(self, self.board)
             f_act = (0, f_act // 8, f_act % 8)
             next_state, reward, termination, info = self.next_step(self.board, f_act)
             if termination:
                 return next_state, reward, termination, False, info
+            # if, after WHITE's move, BLACK has a valid move return
             if len(self._all_valid_actions(next_state, BLACK)) > 0:
-                break
+                self.player = BLACK
+                return next_state, reward, termination, False, info
+            # if black has no valid moves, then see if WHITE does have.
             self.player = WHITE
-        self.player = BLACK
-        return next_state, reward, termination, False, info
+        # to get here, means WHITE has no valid moves, but BLACK still might
+        if len(self._all_valid_actions(next_state, BLACK)) > 0:
+            self.player = BLACK
+            return self.board, reward, termination, False, info
+        else:
+            winner = self.get_winner(self.board)
+            terminal_state = copy.deepcopy(state)
+            state, info = self.reset()
+            info['terminal_observation'] = terminal_state
+            return self.board, winner, True, False, info
+
+    def opponent_step(self, action):
+        player = self.player
+        other_player = -self.player
+        while len(self._all_valid_actions(self.board, player)) > 0:
+            f_act = (0, action // 8, action % 8)
+            next_state, reward, termination, info = self.next_step(self.board, f_act)
+            if termination:
+                return next_state, reward, termination, False, info
+            if len(self._all_valid_actions(next_state, other_player)) > 0:
+                return next_state, reward, termination, False, info
+            self.player = player
+        self.player = other_player
+        return self.board, 0.0, False, False, {}
 
     def next_step(self, state, action):
         """Get the next observation, reward, termination, and info.
@@ -305,6 +332,10 @@ class ReversiEnvCNN(gym.Env):
         if np.sum(board == 1) == np.sum(board == -1):
             return EMPTY
         return np.sign(np.nansum(board))
+
+def build_reversi(opponent="Random", verbose=False, opponent_model=None) -> ReversiEnvCNN:
+    env = gym.make("ReversiCNN-v0", opponent=opponent, verbose=verbose, opponent_model=opponent_model)
+    return env
 
 
 register(
