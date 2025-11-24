@@ -262,7 +262,7 @@ class ReversiEnvCNN(gym.Env):
         winner = self.get_winner(state)
         if winner is not None:
             terminal_state = copy.deepcopy(state)
-            state, info = self.reset()
+            _, info = self.reset()
             info['terminal_observation'] = terminal_state
             return state, winner, True, info
 

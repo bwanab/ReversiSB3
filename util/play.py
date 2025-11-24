@@ -23,20 +23,21 @@ def play(model, num_games, opponent, deterministic, verbose):
             board = obs
             player = env.player
             if verbose:
-                render(board)
+                pass
+                # render(board)
             action, probs, actions = get_action(model, board, mask_fn(env), deterministic=deterministic, verbose=verbose)
             if verbose:
                 m = torch.nn.Softmax(dim=0)
-                print(action, actions, m(probs).detach().numpy())
+                # print(action, actions, m(probs).detach().numpy())
             if verbose:
                 mn = get_move_notation(env, player, action)
                 moves.append(mn)
-                print(mn)
+                # print(mn)
             obs, rewards, term, _truncated, info = env.step(action)
             if verbose:
                 b = obs
                 per_player_diff = count_players(per_player, b)
-                print(per_player_diff)
+                # print(per_player_diff)
 
             if term:
                 term_obs = info['terminal_observation']

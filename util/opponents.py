@@ -40,6 +40,15 @@ class ModelOpponent(Opponent):
         self.alt_env.player = BLACK
 
     def get_action(self, env, state):
+        # the idea here is that the model is trained to behave like BLACK, but here
+        # it is actually playing WHITE.
+        #
+        # we simulate this by reversing the board (state) values,
+        # Note that the player of alt_env is set in the constructor to be BLACK.
+        # Thus, when the model.predict is invoked, the model believes the state of the
+        # board and player are BLACK and gives its view of the best play BLACK could make
+        # which when translated back should be the best play WHITE would make given the
+        # actual game state.
         alt_state = state * self.player
         self.alt_env.board = alt_state
         action, _ = self.model.predict(alt_state, action_masks=mask_fn(self.alt_env), deterministic=False)

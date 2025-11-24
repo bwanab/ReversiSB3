@@ -27,8 +27,8 @@ if __name__ == '__main__':
                     epilog = 'Text at the bottom of help')
 
     parser.add_argument("-e", "--episodes", default=10)
-    parser.add_argument("-m", "--model", default = "dorkF_CNN_test")
-    parser.add_argument("-r", "--opp_model", default = "dorkE_CNN_test")
+    parser.add_argument("-m", "--model", default = "dorkJ_CNN_test")
+    parser.add_argument("-r", "--opp_model", default = "models/dorkJ_CNN_test")
     parser.add_argument("-o", "--opponent", default="Model")
     parser.add_argument("-d", "--non_deterministic", action='store_true')
     parser.add_argument("-v", "--verbose", action='store_true')

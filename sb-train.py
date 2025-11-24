@@ -1,5 +1,5 @@
 import gymnasium as gym
-from util.reversi import ReversiEnvCNN
+from util.reversi import build_reversi
 from util.util import mask_fn, get_model
 from util.play import play
 from util.opponents import get_opponent, RandomOpponent
@@ -90,22 +90,28 @@ if __name__ == '__main__':
                     epilog = 'Text at the bottom of help')
 
     parser.add_argument("-p", "--epochs", default=20)
-    parser.add_argument("-e", "--episodes", default=100000)
-    parser.add_argument("-m", "--model", default = "dork8")
-    parser.add_argument("-o", "--opponent", default="Random") # training opponent
+    parser.add_argument("-e", "--episodes", default=500_000)
+    parser.add_argument("-m", "--model", default = "dorkJ")
+    parser.add_argument("-o", "--opponent", default="Model") # training opponent
+    parser.add_argument("-r", "--opp_model", default="models/dorkJ_CNN_test")
     parser.add_argument("-t", "--test_opponent", default="Random") # test opponent
     parser.add_argument("-w", "--net_width", default="512")
     args = parser.parse_args()
 
-    
-    env = ActionMasker(ReversiEnvCNN.build_reversi(), mask_fn)  # Wrap to enable masking
-
     file = "models/" + args.model + "_CNN_test"
+    checkpoint_cb = CheckpointCallback(
+        save_freq=10_000,
+        save_path="./checkpoints/",
+        name_prefix=args.model + "_CNN_test",
+    )
+
+    env = ActionMasker(build_reversi(opponent=args.opponent, opponent_model=args.opp_model), mask_fn)  # Wrap to enable masking
+
     net_width = int(args.net_width)
     # opponent = get_opponent(args.opponent, file=file, env=env, net_width=net_width)
     model = get_model(file, env, net_width=net_width, model_type="cnn", device=device)
-    new_logger = configure("models/temp/", ["stdout", "csv", "tensorboard"])
-    model.set_logger(new_logger)
+    # new_logger = configure("models/temp/", ["stdout", "csv", "tensorboard"])
+    # model.set_logger(new_logger)
     # Train the agent and display a progress bar
     episodes = int(args.episodes)
     epochs = int(args.epochs)
@@ -113,6 +119,18 @@ if __name__ == '__main__':
     test_opponent = get_opponent(args.test_opponent, file=file, env=env, net_width=net_width)
     playCB = PlayCallback(model, file, 100, test_opponent, False)
     everyNCB = EveryNTimesteps(n_steps=10000, callback=playCB)
-    model.learn(total_timesteps=episodes, progress_bar=True, callback=[everyNCB])
+    model.learn(total_timesteps=episodes, 
+                progress_bar=True, 
+                callback=[everyNCB, checkpoint_cb], 
+                tb_log_name=args.model, 
+                reset_num_timesteps=False)
+    # model.learning_rate = 2e-5
+    # env.set_opponent("Model", opponent_model=file, )
+    # model.learn(total_timesteps=10000, 
+    #             progress_bar=True, 
+    #             callback=[everyNCB, checkpoint_cb], 
+    #             tb_log_name=args.model, 
+    #             reset_num_timesteps=False)
+
     # Save the agent
     model.save(file)
