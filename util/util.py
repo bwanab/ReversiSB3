@@ -120,7 +120,7 @@ def render(obs):
 
 def mask_fn(env: gym.Env) -> np.ndarray:
     mask = env.get_valid(env.board).reshape(64).tolist()
-    return np.array(mask, dtype=np.int8)
+    return np.array(mask, dtype=bool)
 
 def get_action(model: MaskablePPO, obs, mask, deterministic=False, verbose=False):
     if np.all(mask == 0):

@@ -219,7 +219,7 @@ class ReversiEnvCNN(gym.Env):
             return self.board, reward, termination, False, info
         else:
             winner = self.get_winner(self.board)
-            terminal_state = copy.deepcopy(state)
+            terminal_state = copy.deepcopy(self.board)
             state, info = self.reset()
             info['terminal_observation'] = terminal_state
             return self.board, winner, True, False, info
@@ -332,6 +332,9 @@ class ReversiEnvCNN(gym.Env):
         if np.sum(board == 1) == np.sum(board == -1):
             return EMPTY
         return np.sign(np.nansum(board))
+    
+    def render(self):
+        render(self.board)
 
 def build_reversi(opponent="Random", verbose=False, opponent_model=None) -> ReversiEnvCNN:
     env = gym.make("ReversiCNN-v0", opponent=opponent, verbose=verbose, opponent_model=opponent_model)
