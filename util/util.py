@@ -32,7 +32,7 @@ def slow_entropy_decay(initial_value: float) -> Callable[[float], float]:
     return func
 
 
-def get_model(file, env, net_width=256, learning_rate = 5e-5, model_type="cnn", device="cpu"):
+def get_model(file, env, net_width=256, learning_rate = 2e-5, model_type="cnn", device="cpu"):
     if os.path.isfile(file + ".zip"):
         model = MaskablePPO.load(file, env=env)
         #### turns out, this is redundant since policy is always saved with model
@@ -49,13 +49,13 @@ def get_model(file, env, net_width=256, learning_rate = 5e-5, model_type="cnn", 
                             tensorboard_log=file + ".log",
                             device=device,
                             batch_size=128,
-                            n_steps = 1024,
+                            n_steps=2048,
                             learning_rate=learning_rate,
                             ent_coef=0.02,
-                            n_epochs=15,
+                            n_epochs=10,             # Reduced from 15 to avoid overfitting
                             gae_lambda=0.95,
-                            gamma=0.98,
-                            clip_range=0.01,
+                            gamma=0.99,
+                            clip_range=0.1,          # Increased from 0.01 to allow policy updates
                             verbose=1
         )
     else:

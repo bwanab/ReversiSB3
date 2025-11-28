@@ -208,7 +208,7 @@ Usage Examples:
                        help="Timesteps between self-model refreshes (default: timesteps//5)")
     
     # Model and environment configuration
-    parser.add_argument("-m", "--model", default="dorkL", help="Model name")
+    parser.add_argument("-m", "--model", default="dorkN", help="Model name")
     parser.add_argument("-t", "--test-opponent", default="Random", help="Test opponent type")
     parser.add_argument("-w", "--net-width", type=int, default=512, help="Neural network width")
     
