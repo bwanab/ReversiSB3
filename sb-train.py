@@ -1,6 +1,6 @@
 import gymnasium as gym
 from util.reversi import build_reversi, ReversiEnvCNN
-from util.util import mask_fn, get_model
+from util.util import mask_fn, get_model, set_learning_rate
 from util.play import play
 from util.opponents import get_opponent, RandomOpponent
 
@@ -83,15 +83,26 @@ class PlayCallback(BaseCallback):
 
 import argparse
 
-def learn_helper(PlayCallback, args, file, checkpoint_cb, env, net_width, model, timesteps):
-    """Helper function to run training for a specified number of timesteps."""
+def learn_helper(PlayCallback, args, file, checkpoint_cb, env, net_width, model, timesteps, lr=None):
+    """Helper function to run training for a specified number of timesteps.
+
+    Parameters
+    ----------
+    lr : float, optional
+        If provided, sets the learning rate before training
+    """
+    # Set learning rate if provided
+    if lr is not None:
+        set_learning_rate(model, lr)
+        print(f"📊 Learning rate: {lr:.2e}")
+
     test_opponent = get_opponent(args.test_opponent, file=file, env=env, net_width=net_width)
     playCB = PlayCallback(model, file, 100, test_opponent, False)
     everyNCB = EveryNTimesteps(n_steps=10000, callback=playCB)
-    model.learn(total_timesteps=timesteps, 
-                progress_bar=True, 
-                callback=[everyNCB, checkpoint_cb], 
-                tb_log_name=args.model, 
+    model.learn(total_timesteps=timesteps,
+                progress_bar=True,
+                callback=[everyNCB, checkpoint_cb],
+                tb_log_name=args.model,
                 reset_num_timesteps=False)
 
 def train_random_only(model, env, args, file, checkpoint_cb, net_width, timesteps):
@@ -155,19 +166,85 @@ def train_selfplay_mixed(model, env, args, file, checkpoint_cb, net_width, times
         print(f"⚠️  Warning: Could not clean up temp file: {e}")
 
 def train_sequential(model, env, args, file, checkpoint_cb, net_width, random_timesteps, selfplay_timesteps, random_ratio=0.2):
-    """Mode 3: Train random-only, then self-play mixed."""
+    """Mode 3: Train random-only, then self-play mixed with optional LR decay."""
+    total_timesteps = random_timesteps + selfplay_timesteps
+    use_lr_decay = hasattr(args, 'start_lr') and args.start_lr is not None and hasattr(args, 'end_lr') and args.end_lr is not None
+
     print(f"📈 Training Mode: Sequential")
     print(f"   Phase 1: Random-only for {random_timesteps:,} timesteps")
     print(f"   Phase 2: Self-play mixed for {selfplay_timesteps:,} timesteps")
-    
+    if use_lr_decay:
+        print(f"   📉 LR Decay: {args.start_lr:.2e} → {args.end_lr:.2e}")
+
+    timesteps_done = 0
+
     # Phase 1: Random-only
     print(f"\n🎯 Phase 1: Random-only training")
-    train_random_only(model, env, args, file, checkpoint_cb, net_width, random_timesteps)
-    
-    # Phase 2: Self-play mixed
+    if use_lr_decay:
+        progress = timesteps_done / total_timesteps
+        phase1_lr = args.start_lr - (args.start_lr - args.end_lr) * progress
+        env.set_opponent("Random", None)
+        learn_helper(PlayCallback, args, file, checkpoint_cb, env, net_width, model, random_timesteps, lr=phase1_lr)
+    else:
+        train_random_only(model, env, args, file, checkpoint_cb, net_width, random_timesteps)
+
+    timesteps_done += random_timesteps
+
+    # Phase 2: Self-play mixed with LR decay
     print(f"\n🤖 Phase 2: Self-play mixed training")
     refresh_interval = selfplay_timesteps // 5  # Default refresh interval
-    train_selfplay_mixed(model, env, args, file, checkpoint_cb, net_width, selfplay_timesteps, random_ratio, refresh_interval)
+
+    if use_lr_decay:
+        # Custom self-play with LR decay
+        random_ts = int(selfplay_timesteps * random_ratio)
+        selfplay_ts = selfplay_timesteps - random_ts
+
+        print(f"   - Self-play: {selfplay_ts:,} timesteps ({100*(1-random_ratio):.0f}%)")
+        print(f"   - Random: {random_ts:,} timesteps ({100*random_ratio:.0f}%)")
+        print(f"   - Refresh interval: {refresh_interval:,} timesteps")
+
+        temp_opponent = file + "_temp_opponent"
+        phase2_timesteps_done = 0
+
+        while phase2_timesteps_done < selfplay_timesteps:
+            remaining = selfplay_timesteps - phase2_timesteps_done
+            block_timesteps = min(refresh_interval, remaining)
+            block_random = int(block_timesteps * random_ratio)
+            block_selfplay = block_timesteps - block_random
+
+            print(f"\n--- Block {phase2_timesteps_done//refresh_interval + 1}: {block_timesteps:,} timesteps ---")
+
+            # Save current model as opponent
+            print(f"💾 Saving current model as opponent: {temp_opponent}")
+            model.save(temp_opponent)
+
+            # Train against self with LR decay
+            if block_selfplay > 0:
+                print(f"🤖 Self-play training: {block_selfplay:,} timesteps")
+                progress = (timesteps_done + phase2_timesteps_done) / total_timesteps
+                current_lr = args.start_lr - (args.start_lr - args.end_lr) * progress
+                env.set_opponent("Model", temp_opponent)
+                learn_helper(PlayCallback, args, file, checkpoint_cb, env, net_width, model, block_selfplay, lr=current_lr)
+                phase2_timesteps_done += block_selfplay
+
+            # Train against random with LR decay
+            if block_random > 0:
+                print(f"🎲 Random training: {block_random:,} timesteps")
+                progress = (timesteps_done + phase2_timesteps_done) / total_timesteps
+                current_lr = args.start_lr - (args.start_lr - args.end_lr) * progress
+                env.set_opponent("Random", None)
+                learn_helper(PlayCallback, args, file, checkpoint_cb, env, net_width, model, block_random, lr=current_lr)
+                phase2_timesteps_done += block_random
+
+        # Clean up temp opponent file
+        try:
+            if os.path.exists(temp_opponent + ".zip"):
+                os.remove(temp_opponent + ".zip")
+                print(f"🧹 Cleaned up temp opponent file: {temp_opponent}.zip")
+        except Exception as e:
+            print(f"⚠️  Warning: Could not clean up temp file: {e}")
+    else:
+        train_selfplay_mixed(model, env, args, file, checkpoint_cb, net_width, selfplay_timesteps, random_ratio, refresh_interval)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
@@ -177,13 +254,17 @@ if __name__ == '__main__':
 Usage Examples:
   # Mode 1: Random-only training
   python sb-train.py --mode random --timesteps 50000 -m "test_model"
-  
+
   # Mode 2: Self-play mixed with custom ratios
   python sb-train.py --mode selfplay --timesteps 200000 --random-ratio 0.3 --refresh-interval 40000
-  
-  # Mode 3: Sequential curriculum training  
+
+  # Mode 3: Sequential curriculum training
   python sb-train.py --mode sequential --random-timesteps 100000 --selfplay-timesteps 300000
-  
+
+  # Mode 3 with learning rate decay (3e-5 to 0 over 3M timesteps)
+  python sb-train.py --mode sequential --random-timesteps 1000000 --selfplay-timesteps 2000000 \\
+                     --start-lr 3e-5 --end-lr 0 -m "my_model"
+
   # Quick defaults
   python sb-train.py --mode selfplay --timesteps 100000  # Uses 20% random, refreshes every 20k steps
 ''',
@@ -208,10 +289,17 @@ Usage Examples:
                        help="Timesteps between self-model refreshes (default: timesteps//5)")
     
     # Model and environment configuration
-    parser.add_argument("-m", "--model", default="dorkN", help="Model name")
+    parser.add_argument("-m", "--model", default="dorkQ", help="Model name")
     parser.add_argument("-t", "--test-opponent", default="Random", help="Test opponent type")
     parser.add_argument("-w", "--net-width", type=int, default=512, help="Neural network width")
-    
+    parser.add_argument("-lr", "--learning-rate", type=float, default=2e-5, help="Learning rate (default: 2e-5)")
+
+    # Learning rate decay (for sequential mode)
+    parser.add_argument("--start-lr", type=float, default=None,
+                       help="Starting learning rate for LR decay (sequential mode only)")
+    parser.add_argument("--end-lr", type=float, default=None,
+                       help="Ending learning rate for LR decay (sequential mode only)")
+
     # Legacy arguments (for backward compatibility)
     parser.add_argument("-p", "--epochs", type=int, default=None, help="Legacy: use --mode instead")
     parser.add_argument("-e", "--episodes", type=int, default=None, help="Legacy: use --timesteps instead")
@@ -238,7 +326,7 @@ Usage Examples:
     # Initial environment setup (will be reconfigured based on mode)
     env: ReversiEnvCNN = ActionMasker(build_reversi(opponent="Random"), mask_fn)
 
-    model = get_model(file, env, net_width=args.net_width, model_type="cnn", device=device)
+    model = get_model(file, env, net_width=args.net_width, learning_rate=args.learning_rate, model_type="cnn", device=device)
     
     print(f"🚀 Starting training with model: {args.model}")
     print(f"💻 Using device: {device}")

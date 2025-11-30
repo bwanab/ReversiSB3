@@ -31,12 +31,43 @@ def slow_entropy_decay(initial_value: float) -> Callable[[float], float]:
         return initial_value * (0.3 + 0.7 * progress_remaining)
     return func
 
+def set_learning_rate(model: MaskablePPO, lr: float) -> None:
+    """Update the learning rate of a model's optimizer.
 
-def get_model(file, env, net_width=256, learning_rate = 2e-5, model_type="cnn", device="cpu"):
+    CRITICAL: Updates three places to ensure LR persists across learn() calls:
+    1. The optimizer's param_groups (actual LR used in training)
+    2. model.learning_rate (the attribute)
+    3. model.lr_schedule (the function SB3 calls during learn())
+
+    Parameters
+    ----------
+    model : MaskablePPO
+        The model to update
+    lr : float
+        The new learning rate
+
+    Example
+    -------
+    >>> set_learning_rate(model, 1e-5)
+    >>> model.learn(total_timesteps=100000, reset_num_timesteps=False)
+    >>> # LR will remain 1e-5 throughout training
+    """
+    for param_group in model.policy.optimizer.param_groups:
+        param_group['lr'] = lr
+    model.learning_rate = lr
+    # CRITICAL: Also update lr_schedule to prevent reset during learn()
+    if hasattr(model, 'lr_schedule'):
+        model.lr_schedule = lambda _: lr
+
+def get_model(file, env, net_width=256, learning_rate = 1e-5, model_type="cnn", device="cpu"):
     if os.path.isfile(file + ".zip"):
         model = MaskablePPO.load(file, env=env)
         #### turns out, this is redundant since policy is always saved with model
         # model.policy = MaskableActorCriticPolicy.load(file + '_policy.zip')
+        # Update learning rate if provided and different from saved model
+        if learning_rate != model.learning_rate:
+            set_learning_rate(model, learning_rate)
+            print(f"✓ Updated learning rate to {learning_rate}")
     elif model_type == "cnn":
         policy_kwargs = dict(
             features_extractor_class=ReversiCNN,
@@ -48,13 +79,13 @@ def get_model(file, env, net_width=256, learning_rate = 2e-5, model_type="cnn", 
                             policy_kwargs=policy_kwargs, 
                             tensorboard_log=file + ".log",
                             device=device,
-                            batch_size=128,
+                            batch_size=256,
                             n_steps=2048,
                             learning_rate=learning_rate,
-                            ent_coef=0.02,
-                            n_epochs=10,             # Reduced from 15 to avoid overfitting
-                            gae_lambda=0.95,
-                            gamma=0.99,
+                            ent_coef=0.03,
+                            n_epochs=5,             # Reduced from 15 to avoid overfitting
+                            gae_lambda=0.90,
+                            gamma=0.98,
                             clip_range=0.1,          # Increased from 0.01 to allow policy updates
                             verbose=1
         )

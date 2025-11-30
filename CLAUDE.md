@@ -108,11 +108,74 @@ The project uses a virtual environment in `venv-sb/`. Key dependencies:
 4. Periodic evaluation and checkpoint saving
 5. TensorBoard logging of win rates and metrics
 
+## Training Observations & Hyperparameter Experiments
+
+### Observed Training Behavior (Random Opponent)
+- **Initial Progress**: Models show good learning progress for ~250,000 timesteps
+- **Collapse at 250k**: After 250k steps, training exhibits instability:
+  - `explained_variance` drops sharply
+  - `value_loss`, `policy_gradient_loss`, and `loss` metrics fall off
+  - Indicates policy/value function instability
+
+### Current Hyperparameters (util/util.py:46-59)
+```python
+learning_rate = 2e-5         # Now configurable via -lr flag
+batch_size = 128
+n_steps = 2048
+ent_coef = 0.02             # Entropy coefficient
+n_epochs = 10               # Epochs per update
+gae_lambda = 0.95           # GAE lambda
+gamma = 0.98                # Discount factor
+clip_range = 0.1            # PPO clip range
+```
+
+### Active Experiment: Learning Rate Reduction
+**Hypothesis**: Lower learning rate after initial training phase prevents collapse
+**Method**:
+1. Load checkpoint at 250k steps (before collapse)
+2. Resume training with reduced learning rate (e.g., `-lr 1e-5` or `-lr 5e-6`)
+3. Monitor if explained_variance remains stable
+
+### Future Hyperparameter Experiments to Consider
+
+**If learning rate reduction alone doesn't solve instability:**
+
+1. **Batch Size** (current: 128)
+   - Try: 256, 512
+   - Larger batches = more stable gradients, less noise
+   - Trade-off: Slower updates, more memory
+
+2. **Number of Epochs** (current: 10)
+   - Try: 5, 7
+   - Fewer epochs = less overfitting on each batch
+   - Risk: Slower learning from each experience batch
+
+3. **GAE Lambda** (current: 0.95)
+   - Try: 0.90, 0.92
+   - Lower = less bias, more variance in advantage estimates
+   - Affects credit assignment over time
+
+4. **Entropy Coefficient** (current: 0.02)
+   - Try: 0.03, 0.05
+   - Higher = more exploration, less deterministic policy
+   - Can prevent premature convergence
+
+5. **Clip Range** (current: 0.1)
+   - Try: 0.05, 0.08
+   - Lower = more conservative policy updates
+   - Prevents large destabilizing updates
+
+**Metrics to Monitor:**
+- `explained_variance`: Should stay > 0.5 (ideally 0.7+)
+- `approx_kl`: Should stay < 0.05 (KL divergence between old/new policy)
+- `clip_fraction`: If consistently > 0.3, clip range may be too restrictive
+- Win rate stability over time
+
 ## Device Support
 
 The training system automatically detects and uses:
 - Apple Silicon GPU (MPS) if available
-- CUDA GPU if available  
+- CUDA GPU if available
 - CPU as fallback
 
 Device selection is handled in `sb-train.py` and passed to model creation.
