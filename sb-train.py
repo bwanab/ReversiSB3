@@ -165,6 +165,91 @@ def train_selfplay_mixed(model, env, args, file, checkpoint_cb, net_width, times
     except Exception as e:
         print(f"⚠️  Warning: Could not clean up temp file: {e}")
 
+def train_mixed_three_way(model, env, args, file, checkpoint_cb, net_width, timesteps,
+                         selfplay_ratio=0.75, random_ratio=0.20, rai_ratio=0.05,
+                         refresh_interval=None, rai_depth=2):
+    """Mode 4: Train with three-way mix: Self-play, Random, and RAI opponents.
+
+    Parameters
+    ----------
+    selfplay_ratio : float
+        Fraction of timesteps against self (default: 0.75)
+    random_ratio : float
+        Fraction of timesteps against random (default: 0.20)
+    rai_ratio : float
+        Fraction of timesteps against RAI (default: 0.05)
+    rai_depth : int
+        RAI minimax search depth (default: 2)
+    """
+    if refresh_interval is None:
+        refresh_interval = timesteps // 5
+
+    # Normalize ratios to ensure they sum to 1.0
+    total_ratio = selfplay_ratio + random_ratio + rai_ratio
+    selfplay_ratio /= total_ratio
+    random_ratio /= total_ratio
+    rai_ratio /= total_ratio
+
+    selfplay_timesteps = int(timesteps * selfplay_ratio)
+    random_timesteps = int(timesteps * random_ratio)
+    rai_timesteps = timesteps - selfplay_timesteps - random_timesteps  # Ensure exact total
+
+    print(f"🎯 Training Mode: Mixed (Self/Random/RAI) for {timesteps:,} timesteps")
+    print(f"   - Self-play: {selfplay_timesteps:,} timesteps ({100*selfplay_ratio:.1f}%)")
+    print(f"   - Random: {random_timesteps:,} timesteps ({100*random_ratio:.1f}%)")
+    print(f"   - RAI (depth={rai_depth}): {rai_timesteps:,} timesteps ({100*rai_ratio:.1f}%)")
+    print(f"   - Refresh interval: {refresh_interval:,} timesteps")
+    print(f"   ⏱️  Estimated RAI time: ~{rai_timesteps/30*4/60:.1f} minutes")
+
+    # Create temp opponent model path
+    temp_opponent = file + "_temp_opponent"
+
+    timesteps_trained = 0
+    while timesteps_trained < timesteps:
+        # Determine timesteps for this block
+        remaining = timesteps - timesteps_trained
+        block_timesteps = min(refresh_interval, remaining)
+
+        # Calculate timesteps for each opponent in this block
+        block_selfplay = int(block_timesteps * selfplay_ratio)
+        block_random = int(block_timesteps * random_ratio)
+        block_rai = block_timesteps - block_selfplay - block_random
+
+        print(f"\n--- Block {timesteps_trained//refresh_interval + 1}: {block_timesteps:,} timesteps ---")
+        print(f"    Self: {block_selfplay:,} | Random: {block_random:,} | RAI: {block_rai:,}")
+
+        # Save current model as opponent
+        print(f"💾 Saving current model as opponent: {temp_opponent}")
+        model.save(temp_opponent)
+
+        # Train against self (frozen opponent)
+        if block_selfplay > 0:
+            print(f"🤖 Self-play training: {block_selfplay:,} timesteps")
+            env.set_opponent("Model", temp_opponent)
+            learn_helper(PlayCallback, args, file, checkpoint_cb, env, net_width, model, block_selfplay)
+
+        # Train against random
+        if block_random > 0:
+            print(f"🎲 Random training: {block_random:,} timesteps")
+            env.set_opponent("Random", None)
+            learn_helper(PlayCallback, args, file, checkpoint_cb, env, net_width, model, block_random)
+
+        # Train against RAI
+        if block_rai > 0:
+            print(f"🧠 RAI training (depth={rai_depth}): {block_rai:,} timesteps")
+            env.set_opponent("RAI", None, depth=rai_depth)
+            learn_helper(PlayCallback, args, file, checkpoint_cb, env, net_width, model, block_rai)
+
+        timesteps_trained += block_timesteps
+
+    # Clean up temp opponent file
+    try:
+        if os.path.exists(temp_opponent + ".zip"):
+            os.remove(temp_opponent + ".zip")
+            print(f"🧹 Cleaned up temp opponent file: {temp_opponent}.zip")
+    except Exception as e:
+        print(f"⚠️  Warning: Could not clean up temp file: {e}")
+
 def train_sequential(model, env, args, file, checkpoint_cb, net_width, random_timesteps, selfplay_timesteps, random_ratio=0.2):
     """Mode 3: Train random-only, then self-play mixed with optional LR decay."""
     total_timesteps = random_timesteps + selfplay_timesteps
@@ -265,14 +350,18 @@ Usage Examples:
   python sb-train.py --mode sequential --random-timesteps 1000000 --selfplay-timesteps 2000000 \\
                      --start-lr 3e-5 --end-lr 0 -m "my_model"
 
+  # Mode 4: Mixed training with Self/Random/RAI opponents (75/20/5 split)
+  python sb-train.py --mode mixed --timesteps 1000000 -m "my_model" \\
+                     --selfplay-ratio 0.75 --random-ratio 0.20 --rai-ratio 0.05 --rai-depth 2
+
   # Quick defaults
   python sb-train.py --mode selfplay --timesteps 100000  # Uses 20% random, refreshes every 20k steps
 ''',
                     formatter_class=argparse.RawDescriptionHelpFormatter)
 
     # Training mode selection
-    parser.add_argument("--mode", choices=["random", "selfplay", "sequential"], default="random",
-                       help="Training mode: random, selfplay, or sequential")
+    parser.add_argument("--mode", choices=["random", "selfplay", "sequential", "mixed"], default="random",
+                       help="Training mode: random, selfplay, sequential, or mixed")
     
     # Timesteps configuration
     parser.add_argument("--timesteps", type=int, default=200_000,
@@ -287,11 +376,20 @@ Usage Examples:
                        help="Ratio of timesteps against random opponent (default: 0.2)")
     parser.add_argument("--refresh-interval", type=int, default=None,
                        help="Timesteps between self-model refreshes (default: timesteps//5)")
+
+    # Mixed mode configuration (3-way: Self/Random/RAI)
+    parser.add_argument("--selfplay-ratio", type=float, default=0.75,
+                       help="Ratio of self-play in mixed mode (default: 0.75)")
+    parser.add_argument("--rai-ratio", type=float, default=0.05,
+                       help="Ratio of RAI training in mixed mode (default: 0.05)")
+    parser.add_argument("--rai-depth", type=int, default=2,
+                       help="RAI minimax search depth for mixed mode (default: 2)")
     
     # Model and environment configuration
     parser.add_argument("-m", "--model", default="dorkQ", help="Model name")
+    parser.add_argument("-dp", "--depth", default="2", help="search depth when opponent is RAI")
     parser.add_argument("-t", "--test-opponent", default="Random", help="Test opponent type")
-    parser.add_argument("-w", "--net-width", type=int, default=512, help="Neural network width")
+    parser.add_argument("-w", "--net-width", type=int, default=512, help="Neural network width - Not for CNNs!")
     parser.add_argument("-lr", "--learning-rate", type=float, default=2e-5, help="Learning rate (default: 2e-5)")
 
     # Learning rate decay (for sequential mode)
@@ -316,6 +414,8 @@ Usage Examples:
     if args.epochs is not None:
         print(f"⚠️  Legacy --epochs argument ignored. Use --mode instead for training configuration.")
 
+    depth = int(args.depth)
+
     file = "models/" + args.model + "_CNN_test"
     checkpoint_cb = CheckpointCallback(
         save_freq=50_000,
@@ -334,15 +434,21 @@ Usage Examples:
     # Execute training based on mode
     if args.mode == "random":
         train_random_only(model, env, args, file, checkpoint_cb, args.net_width, args.timesteps)
-    
+
     elif args.mode == "selfplay":
         refresh_interval = args.refresh_interval or (args.timesteps // 5)
-        train_selfplay_mixed(model, env, args, file, checkpoint_cb, args.net_width, 
+        train_selfplay_mixed(model, env, args, file, checkpoint_cb, args.net_width,
                            args.timesteps, args.random_ratio, refresh_interval)
-    
+
     elif args.mode == "sequential":
         train_sequential(model, env, args, file, checkpoint_cb, args.net_width,
                         args.random_timesteps, args.selfplay_timesteps, args.random_ratio)
+
+    elif args.mode == "mixed":
+        refresh_interval = args.refresh_interval or (args.timesteps // 5)
+        train_mixed_three_way(model, env, args, file, checkpoint_cb, args.net_width,
+                            args.timesteps, args.selfplay_ratio, args.random_ratio,
+                            args.rai_ratio, refresh_interval, args.rai_depth)
 
     # Save the final model
     model.save(file)

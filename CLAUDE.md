@@ -117,24 +117,38 @@ The project uses a virtual environment in `venv-sb/`. Key dependencies:
   - `value_loss`, `policy_gradient_loss`, and `loss` metrics fall off
   - Indicates policy/value function instability
 
-### Current Hyperparameters (util/util.py:46-59)
+### Current Hyperparameters (util/util.py)
 ```python
-learning_rate = 2e-5         # Now configurable via -lr flag
-batch_size = 128
+learning_rate = 1e-5         # Configurable via -lr flag (was 2e-5)
+batch_size = 256             # Increased from 128 for stability
 n_steps = 2048
-ent_coef = 0.02             # Entropy coefficient
-n_epochs = 10               # Epochs per update
-gae_lambda = 0.95           # GAE lambda
-gamma = 0.98                # Discount factor
-clip_range = 0.1            # PPO clip range
+ent_coef = 0.03              # Increased from 0.02 for more exploration
+n_epochs = 5                 # Reduced from 10 to prevent overfitting
+gae_lambda = 0.90            # Reduced from 0.95 for less bias
+gamma = 0.98                 # Discount factor
+clip_range = 0.1             # PPO clip range
 ```
 
-### Active Experiment: Learning Rate Reduction
-**Hypothesis**: Lower learning rate after initial training phase prevents collapse
-**Method**:
-1. Load checkpoint at 250k steps (before collapse)
-2. Resume training with reduced learning rate (e.g., `-lr 1e-5` or `-lr 5e-6`)
-3. Monitor if explained_variance remains stable
+### Training Progress (Current Model Status)
+
+**Total Training**: ~5M timesteps
+- Initial 3M: Sequential (1M random + 2M selfplay) with LR decay (3e-5 → 0)
+- Additional 2M: Self-play with low LR (5e-6) fine-tuning
+
+**Performance vs RAI (2-move lookahead):**
+- Deterministic: 100% (but replays same game)
+- Non-deterministic: ~6% win rate
+- vs RAI (1-move): ~20% win rate
+
+**Training Metrics:**
+- explained_variance: Improved to 0.45 (smoothed), peaks at 0.65
+- Training stable with current hyperparameters
+- Slow but steady progress
+
+**Current Strategy**: Mixed mode training (Self 75% / Random 20% / RAI 5%)
+- Introduces RAI exposure during training (not just evaluation)
+- Cost-effective: ~1.7 hours RAI time per 1M timesteps
+- Goal: Learn to counter RAI's minimax style
 
 ### Future Hyperparameter Experiments to Consider
 
@@ -170,6 +184,110 @@ clip_range = 0.1            # PPO clip range
 - `approx_kl`: Should stay < 0.05 (KL divergence between old/new policy)
 - `clip_fraction`: If consistently > 0.3, clip range may be too restrictive
 - Win rate stability over time
+
+## Contingency Plan: BC Pre-training Approach
+
+**Use Case**: If current model plateaus at middling performance (e.g., stuck at 6-15% vs RAI after 2-3M mixed mode timesteps)
+
+### Behavioral Cloning (BC) → RL Fine-tuning Strategy
+
+**Rationale:**
+- Current model started with Random/Self-play (weak opponents)
+- May be stuck in local minimum, unable to "unlearn" suboptimal strategies
+- Fresh model with BC pre-training starts with expert (RAI) knowledge built-in
+- Proven approach: AlphaGo, OpenAI Five used BC → RL curriculum
+
+### Implementation Plan
+
+#### Phase 1: Data Generation (One-Time, Offline)
+```bash
+# Generate RAI self-play games for BC dataset
+# Run overnight: ~33 hours one-time cost
+python generate_rai_games.py --games 5000 --depth 2 --output rai_dataset.pkl
+
+# Produces:
+# - 5000 games × ~30 moves = 150k (state, action) pairs
+# - Saves to disk for reusable training data
+```
+
+#### Phase 2: BC Pre-training (Fast, ~1-2 hours)
+```python
+# Train fresh model using supervised learning on RAI dataset
+# Model learns: "Given board state, what would RAI do?"
+
+dataset = load_rai_games('rai_dataset.pkl')  # 150k examples
+model = create_fresh_model(architecture='CNN', hyperparameters=current_tuned_params)
+
+for epoch in range(20):
+    for batch in dataset:
+        # Supervised learning: predict RAI's action
+        loss = cross_entropy(model.policy(states), rai_actions)
+        optimizer.step()
+
+# Result: Model that plays "like RAI" (strategic foundation)
+```
+
+#### Phase 3: RL Fine-tuning (Online, 2-3M timesteps)
+```bash
+# Continue BC model with mixed mode training
+python sb-train.py --mode mixed \
+  -m "bc_then_rl_model" \
+  --timesteps 2000000 \
+  --selfplay-ratio 0.75 \
+  --rai-ratio 0.05 \
+  --rai-depth 2 \
+  -lr 3e-5
+
+# Model now learns to BEAT RAI (not just imitate)
+# Builds on strategic foundation from BC
+```
+
+#### Phase 4: Comparison
+Test both approaches:
+- **Current model** (5M+ pure RL): X% vs RAI
+- **BC+RL model** (BC + 2M RL): Y% vs RAI
+- If Y >> X: BC bootstrap approach validated
+
+### When to Trigger BC Approach
+
+**Decision Criteria (After 2-3M Mixed Mode Timesteps):**
+
+**Plateau Indicators (Time for BC approach):**
+- Win rate < 10% vs RAI after 2M mixed mode timesteps
+- explained_variance stuck at 0.45 for 1M+ timesteps
+- No improvement across 3+ consecutive training runs
+- Learning curve shows sharp gains early, then completely flat
+
+**Progress Indicators (Continue current approach):**
+- Any win rate improvement trajectory (6% → 10% → 15%, etc.)
+- explained_variance climbing (0.45 → 0.50 → 0.55+)
+- Model behavior visibly improving (more strategic opening/endgame play)
+- Steady or accelerating learning curve
+
+### Technical Considerations
+
+**Advantages:**
+- Separates concerns: Learn basics (BC) → Learn to win (RL)
+- One-time data generation cost vs. repeated online RAI calls
+- Tests "local minimum" hypothesis for current model
+- Curriculum learning: Expert imitation → Adversarial optimization
+
+**Challenges:**
+- Requires custom BC training code (not built into SB3)
+- BC might teach "playing like RAI" vs. "exploiting RAI weaknesses"
+- Throws away 5M timesteps of current model's learning
+- Need careful handling of perspective (RAI plays both colors)
+
+**Implementation Effort**: ~4-6 hours
+- Data generation script
+- BC training loop (PyTorch)
+- Integration with existing model architecture
+- Evaluation harness
+
+### Priority
+
+**Current Status**: Mixed mode training is active approach
+**BC Approach**: Backup plan if plateau persists after thorough mixed mode evaluation
 
 ## Device Support
 
