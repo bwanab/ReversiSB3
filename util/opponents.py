@@ -55,14 +55,15 @@ class ModelOpponent(Opponent):
         return np.array(action)
 
 class RAIOpponent(Opponent):
-    def __init__(self):
+    def __init__(self, **kwargs):
+        self.depth = kwargs.get("depth", 2)
         super().__init__()
 
     def get_action(self, env, state):
         player = self.player
         # alt_state = copy.copy(state) * player
         alt_state = copy.deepcopy(state)
-        return reversi_ai_action(env, alt_state)
+        return reversi_ai_action(env, alt_state, self.depth)
 
 class RandomOpponent(Opponent):
     def __init__(self):
@@ -76,7 +77,7 @@ def get_opponent(s, **kwargs):
     if s == "Random":
         opponent = RandomOpponent()
     elif s == "RAI":
-        opponent = RAIOpponent()
+        opponent = RAIOpponent(**kwargs)
     elif s == "Human":
         opponent = Human()
     else:
@@ -100,13 +101,13 @@ def random_action(env, state):
 
 rai_cell_map = {-1: 'w', 0: ' ', 1: 'b'}
 
-def reversi_ai_action(env, state):
+def reversi_ai_action(env, state, depth = 2):
     board, player, rai_board = build_rai_board(state, env.player)
 
     try:
         rai = ReversiAI()
         r_ai_player = rai_cell_map[player]
-        coord = rai.get_next_move(rai_board, r_ai_player)
+        coord = rai.get_next_move(rai_board, r_ai_player, depth)
         x = coord.x
         y = coord.y
         rval = np.ravel_multi_index([0, x, y], env.board.shape)

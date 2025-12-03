@@ -10,8 +10,14 @@ torch.device("cpu") # torch.device("mps")
 from sb3_contrib import MaskablePPO
 from sb3_contrib.common.maskable.policies import MaskableActorCriticPolicy
 
-def play_games(file, num_games=100, verbose=False, opponentName="Random", deterministic=False, opponent_model = None):
-    env = build_reversi(opponent=opponentName, verbose=verbose, opponent_model=opponent_model)
+def play_games(file, 
+               num_games=100, 
+               verbose=False, 
+               opponentName="Random", 
+               deterministic=False, 
+               opponent_model = None,
+               depth=2):
+    env = build_reversi(opponent=opponentName, verbose=verbose, opponent_model=opponent_model, depth=depth)
     #opponent = get_opponent(opponentName, file=file, env=env)
 
     model = MaskablePPO.load(file, env=env)
@@ -27,15 +33,17 @@ if __name__ == '__main__':
                     epilog = 'Text at the bottom of help')
 
     parser.add_argument("-e", "--episodes", default=10)
-    parser.add_argument("-m", "--model", default = "dorkJ_CNN_test")
-    parser.add_argument("-r", "--opp_model", default = "models/dorkJ_CNN_test")
+    parser.add_argument("-m", "--model", default = "dorkS_CNN_test")
+    parser.add_argument("-r", "--opp_model", default = "models/current_best")
     parser.add_argument("-o", "--opponent", default="Model")
     parser.add_argument("-d", "--non_deterministic", action='store_true')
+    parser.add_argument("-p", "--depth", default="2", help="depth of min/max search when RAI is opponent")
     parser.add_argument("-v", "--verbose", action='store_true')
     args = parser.parse_args()
 
     import time
     n_games = int(args.episodes)
+    depth = int(args.depth)
     # black_wins = play_games("models/" + args.model, n_games, verbose=True, opponentName=args.opponent,deterministic=args.deterministic)
     start = time.time()
     deterministic = not bool(args.non_deterministic)
@@ -44,7 +52,8 @@ if __name__ == '__main__':
                             verbose=bool(args.verbose), 
                             opponentName=args.opponent,
                             deterministic=deterministic, 
-                            opponent_model=args.opp_model)
+                            opponent_model=args.opp_model,
+                            depth=depth)
     end = time.time()
     print(f"time elapsed: {end - start}")
     print(f"Black wins: {100 * black_wins / n_games}%")

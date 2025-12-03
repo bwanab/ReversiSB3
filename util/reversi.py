@@ -18,7 +18,8 @@ class ReversiEnvCNN(gym.Env):
 
     def __init__(self, board_shape=8, illegal_action_mode: str='resign',
             render_characters: str='+ox', allow_pass: bool=True, 
-            render_mode='human', opponent = "Random", opponent_model=None, verbose=False):
+            render_mode='human', opponent = "Random", opponent_model=None, verbose=False,
+            depth=2):
         """Create a board game.
 
         Parameters
@@ -53,11 +54,11 @@ class ReversiEnvCNN(gym.Env):
         self.action_space = spaces.Discrete(board_shape * board_shape)    # -8 results in self.PASS
         self.player = BLACK
         self.actual_player = BLACK
-        self.opponent = get_opponent(opponent, opponent_model=opponent_model, env=self)
+        self.opponent = get_opponent(opponent, opponent_model=opponent_model, env=self, depth=depth)
         self.verbose = verbose
 
-    def set_opponent(self, opponent, opponent_model):
-        self.opponent = get_opponent(opponent, opponent_model=opponent_model, env=self)
+    def set_opponent(self, opponent, opponent_model, depth=2):
+        self.opponent = get_opponent(opponent, opponent_model=opponent_model, env=self, depth=depth)
     
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed, options=options)
@@ -336,8 +337,8 @@ class ReversiEnvCNN(gym.Env):
     def render(self):
         render(self.board)
 
-def build_reversi(opponent="Random", verbose=False, opponent_model=None) -> ReversiEnvCNN:
-    env = gym.make("ReversiCNN-v0", opponent=opponent, verbose=verbose, opponent_model=opponent_model)
+def build_reversi(opponent="Random", verbose=False, opponent_model=None, depth=2) -> ReversiEnvCNN:
+    env = gym.make("ReversiCNN-v0", opponent=opponent, verbose=verbose, opponent_model=opponent_model, depth=depth)
     return env
 
 
