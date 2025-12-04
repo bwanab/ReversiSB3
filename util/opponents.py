@@ -108,9 +108,14 @@ def reversi_ai_action(env, state, depth = 2):
         rai = ReversiAI()
         r_ai_player = rai_cell_map[player]
         coord = rai.get_next_move(rai_board, r_ai_player, depth)
-        x = coord.x
-        y = coord.y
-        rval = np.ravel_multi_index([0, x, y], env.board.shape)
+
+        # Check if coord is None (no valid moves)
+        if coord is None:
+            rval = random_action(env, state)
+        else:
+            x = coord.x
+            y = coord.y
+            rval = np.ravel_multi_index([0, x, y], env.board.shape)
     except GameHasEndedError:
         rval = random_action(env, state)
     return np.array(rval)

@@ -109,63 +109,74 @@ def generate_bc_dataset(
         else:
             stats['rai_white_games'] += 1
 
-        # IMPORTANT: ReversiEnvCNN always trains BLACK player (env.player == BLACK)
-        # When RAI plays WHITE, we need to flip the board perspective
-        # This follows the same approach as ModelOpponent in opponents.py
+        # Play game using low-level environment methods (bypass env.step())
+        # This allows opponent-vs-opponent play without RL training constraints
 
-        # Set opponent colors (RAI always plays as BLACK from env perspective)
-        rai.player = BLACK
-        opponent.player = WHITE
+        # Set opponent player attributes (needed for their get_action methods)
+        rai.player = rai_color
+        opponent.player = -rai_color
 
-        # Play game
+        # Initialize game
         state, info = env.reset()
         done = False
         game_moves = []
+        current_player = BLACK  # BLACK always goes first in Reversi
 
         while not done:
-            # In the environment, BLACK always goes first (env.player == BLACK for model's turn)
-            # But we need to alternate who makes the first move
+            # Check if current player has valid moves
+            if not env.has_valid(state, current_player):
+                # No valid moves - pass to other player
+                current_player = -current_player
 
-            if rai_plays_black:
-                # RAI (as BLACK) vs Opponent (as WHITE)
-                # RAI goes first - standard game
+                # Check if other player also has no valid moves
+                if not env.has_valid(state, current_player):
+                    # Neither player has moves - game over
+                    done = True
+                    break
+                continue
+
+            # Set env.player BEFORE calling get_action (opponents need this)
+            env.player = current_player
+
+            # Determine which opponent makes the move
+            if current_player == rai_color:
+                # RAI's turn - collect this move for training
                 action = rai.get_action(env, state)
 
-                # Save (state, action) pair from BLACK's perspective
+                # Save (state, action) pair
+                # If RAI is WHITE, flip board state to represent WHITE's perspective
+                if rai_color == WHITE:
+                    saved_state = state.copy() * -1  # Flip perspective
+                else:
+                    saved_state = state.copy()
+
                 game_moves.append({
-                    'state': state.copy(),
+                    'state': saved_state,
                     'action': int(action) if isinstance(action, np.ndarray) else action,
-                    'color': BLACK,
+                    'color': rai_color,
                     'game_num': game_num
                 })
             else:
-                # RAI (as WHITE) vs Opponent (as BLACK)
-                # Opponent goes first, but we flip perspective so RAI still plays from BLACK perspective
-                # Then we flip the saved state to represent WHITE's view
-                action = rai.get_action(env, state)
+                # Opponent's turn - don't collect
+                action = opponent.get_action(env, state)
 
-                # Flip board state to represent WHITE's perspective
-                # (multiply by -1 to swap BLACK and WHITE)
-                white_perspective_state = state.copy() * -1
+            # Execute move using environment's low-level method
+            # Convert action to tuple format (channel, row, col)
+            action_int = int(action) if isinstance(action, np.ndarray) else action
+            action_tuple = (0, action_int // 8, action_int % 8)
 
-                game_moves.append({
-                    'state': white_perspective_state,
-                    'action': int(action) if isinstance(action, np.ndarray) else action,
-                    'color': WHITE,
-                    'game_num': game_num
-                })
+            # Update board state directly (bypass step())
+            # env.player already set above for get_action()
+            state = env.get_next_state(state, action_tuple)
+            env.board = state  # Update environment's internal board
 
-            # Execute RAI's move
-            state, reward, terminated, truncated, info = env.step(action)
-            if terminated or truncated:
-                break
-
-            # Now opponent's turn
-            action = opponent.get_action(env, state)
-
-            # Execute opponent's move
-            state, reward, terminated, truncated, info = env.step(action)
-            done = terminated or truncated
+            # Check if game is over
+            winner = env.get_winner(state)
+            if winner is not None:
+                done = True
+            else:
+                # Switch to next player
+                current_player = -current_player
 
         # Record game result (from RAI's perspective)
         # reward is from current player's perspective, but we need to check who won
