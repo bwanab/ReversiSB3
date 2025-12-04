@@ -18,14 +18,20 @@ def run_all_tests():
     from test_reversi_environment import TestReversiEnvironment
     from test_game_scenarios import TestGameScenarios, TestEdgeCaseScenarios
     from test_training_components import TestTrainingComponents, TestEnvironmentIntegration
+    from test_bc_system import (TestBCDatasetGeneration, TestBCTraining,
+                                 TestBCDatasetClass, TestBCIntegration)
     
     # Create test suite
     test_classes = [
         TestReversiEnvironment,
-        TestGameScenarios, 
+        TestGameScenarios,
         TestEdgeCaseScenarios,
         TestTrainingComponents,
-        TestEnvironmentIntegration
+        TestEnvironmentIntegration,
+        TestBCDatasetGeneration,
+        TestBCTraining,
+        TestBCDatasetClass,
+        TestBCIntegration
     ]
     
     suite = unittest.TestSuite()
@@ -77,9 +83,14 @@ def run_specific_test(test_name):
     test_map = {
         'environment': 'test_reversi_environment.TestReversiEnvironment',
         'scenarios': 'test_game_scenarios.TestGameScenarios',
-        'edge_cases': 'test_game_scenarios.TestEdgeCaseScenarios', 
+        'edge_cases': 'test_game_scenarios.TestEdgeCaseScenarios',
         'training': 'test_training_components.TestTrainingComponents',
-        'integration': 'test_training_components.TestEnvironmentIntegration'
+        'integration': 'test_training_components.TestEnvironmentIntegration',
+        'bc_dataset': 'test_bc_system.TestBCDatasetGeneration',
+        'bc_training': 'test_bc_system.TestBCTraining',
+        'bc_dataset_class': 'test_bc_system.TestBCDatasetClass',
+        'bc_integration': 'test_bc_system.TestBCIntegration',
+        'bc': 'test_bc_system'  # Run all BC tests
     }
     
     if test_name in test_map:

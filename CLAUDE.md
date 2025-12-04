@@ -69,6 +69,33 @@ Options:
 - `-o/--opponent`: Opponent type
 - `-v/--verbose`: Display game details
 
+### Behavioral Cloning (BC) Training
+
+#### Generate BC Dataset
+```bash
+python generate_bc_dataset.py -g 10000 -m MODEL_NAME -r 0.7 -d 2 -o bc_dataset.pkl
+```
+Options:
+- `-g/--games`: Number of games to generate (default: 10000)
+- `-m/--model`: Model file for opponent (without .zip)
+- `-r/--model-ratio`: Ratio of Model vs Random games (default: 0.7 = 70% Model, 30% Random)
+- `-d/--rai-depth`: RAI search depth (default: 2)
+- `-w/--net-width`: Neural network width (default: 512)
+- `-o/--output`: Output pickle file (default: bc_dataset.pkl)
+
+#### Train BC Model
+```bash
+python bc_train.py -d bc_dataset.pkl -m bc_pretrained -e 20 -b 256 -lr 1e-4
+```
+Options:
+- `-d/--dataset`: BC dataset pickle file (required)
+- `-m/--model`: Output model name (required, without .zip)
+- `-e/--epochs`: Training epochs (default: 20)
+- `-b/--batch-size`: Batch size (default: 256)
+- `-lr/--learning-rate`: Learning rate (default: 1e-4)
+- `-w/--net-width`: Neural network width (default: 512)
+- `-v/--val-split`: Validation split fraction (default: 0.1)
+
 ### Installing Dependencies
 ```bash
 pip install -r requirements.txt
@@ -201,52 +228,87 @@ clip_range = 0.1             # PPO clip range
 
 #### Phase 1: Data Generation (One-Time, Offline)
 ```bash
-# Generate RAI self-play games for BC dataset
-# Run overnight: ~33 hours one-time cost
-python generate_rai_games.py --games 5000 --depth 2 --output rai_dataset.pkl
+# Generate BC dataset: RAI vs Current Model + Random
+# Estimated time: 8-12 hours for 10,000 games (depends on RAI depth)
+python generate_bc_dataset.py \
+  --games 10000 \
+  --model current_best_model \
+  --model-ratio 0.7 \
+  --rai-depth 2 \
+  --output bc_dataset.pkl
 
-# Produces:
-# - 5000 games × ~30 moves = 150k (state, action) pairs
+# Dataset composition:
+# - 70% RAI vs Current Model (7,000 games) - realistic strategic situations
+# - 30% RAI vs Random (3,000 games) - maximum diversity
+# - RAI plays both Black and White (50/50 split)
+# - Produces: ~300k (state, action) pairs from RAI moves only
 # - Saves to disk for reusable training data
 ```
 
+**Key Implementation Details:**
+- RAI alternates playing Black/White to ensure both perspectives in dataset
+- Only RAI's (state, action) pairs are collected, opponent moves ignored
+- Non-deterministic model opponent ensures game diversity
+- Dataset includes metadata: game count, RAI depth, win rates, color distribution
+
 #### Phase 2: BC Pre-training (Fast, ~1-2 hours)
-```python
-# Train fresh model using supervised learning on RAI dataset
+```bash
+# Train fresh model using supervised learning on BC dataset
 # Model learns: "Given board state, what would RAI do?"
+python bc_train.py \
+  --dataset bc_dataset.pkl \
+  --model bc_pretrained \
+  --epochs 20 \
+  --batch-size 256 \
+  --learning-rate 1e-4 \
+  --net-width 512
 
-dataset = load_rai_games('rai_dataset.pkl')  # 150k examples
-model = create_fresh_model(architecture='CNN', hyperparameters=current_tuned_params)
-
-for epoch in range(20):
-    for batch in dataset:
-        # Supervised learning: predict RAI's action
-        loss = cross_entropy(model.policy(states), rai_actions)
-        optimizer.step()
-
-# Result: Model that plays "like RAI" (strategic foundation)
+# Training details:
+# - Supervised learning: minimize cross-entropy between policy and RAI actions
+# - 90% train / 10% validation split
+# - Tracks accuracy and loss per epoch
+# - Saves BC-pretrained model to models/bc_pretrained_CNN_test.zip
 ```
+
+**Technical Implementation:**
+- Uses PyTorch DataLoader for efficient batching
+- Trains policy network only (not value network)
+- Forward pass: state → CNN features → action logits
+- Loss: F.cross_entropy(action_logits, rai_actions)
+- Optimizer: Adam with learning rate 1e-4
+- Result: Model that imitates RAI's move selection (strategic foundation)
 
 #### Phase 3: RL Fine-tuning (Online, 2-3M timesteps)
 ```bash
 # Continue BC model with mixed mode training
 python sb-train.py --mode mixed \
-  -m "bc_then_rl_model" \
-  --timesteps 2000000 \
+  -m bc_pretrained \
+  -e 500000 \
+  -p 4 \
   --selfplay-ratio 0.75 \
   --rai-ratio 0.05 \
   --rai-depth 2 \
   -lr 3e-5
 
 # Model now learns to BEAT RAI (not just imitate)
-# Builds on strategic foundation from BC
+# Builds on strategic foundation from BC pre-training
+# Uses standard RL (PPO) to optimize for winning, not just imitating
 ```
 
-#### Phase 4: Comparison
+#### Phase 4: Evaluation & Comparison
+```bash
+# Test BC+RL model vs RAI
+python sb-play.py -m bc_pretrained -e 200 -o RAI --rai-depth 2
+
+# Compare against pure RL model
+python sb-play.py -m current_best_model -e 200 -o RAI --rai-depth 2
+```
+
 Test both approaches:
-- **Current model** (5M+ pure RL): X% vs RAI
-- **BC+RL model** (BC + 2M RL): Y% vs RAI
+- **Current model** (7M+ pure RL): ~6% vs RAI-2move
+- **BC+RL model** (BC + 2M RL): Y% vs RAI-2move (to be determined)
 - If Y >> X: BC bootstrap approach validated
+- If Y ≈ X: Pure RL and BC+RL converge to similar local optimum
 
 ### When to Trigger BC Approach
 
@@ -271,23 +333,35 @@ Test both approaches:
 - One-time data generation cost vs. repeated online RAI calls
 - Tests "local minimum" hypothesis for current model
 - Curriculum learning: Expert imitation → Adversarial optimization
+- Fast BC training (~1-2 hours) vs. slow RL training (days)
 
 **Challenges:**
-- Requires custom BC training code (not built into SB3)
-- BC might teach "playing like RAI" vs. "exploiting RAI weaknesses"
-- Throws away 5M timesteps of current model's learning
-- Need careful handling of perspective (RAI plays both colors)
+- BC teaches "playing like RAI" not "exploiting RAI weaknesses" (fine-tuning addresses this)
+- Throws away current model's 7M timesteps of learning (but may be stuck in local minimum)
+- Perspective handling: Dataset must include RAI playing both Black and White (✓ implemented)
+- One-time dataset generation cost: 8-12 hours for 10k games
 
-**Implementation Effort**: ~4-6 hours
-- Data generation script
-- BC training loop (PyTorch)
-- Integration with existing model architecture
-- Evaluation harness
+**Implementation Status**: ✅ Complete
+- ✅ `generate_bc_dataset.py`: Data generation with configurable opponents and RAI depth
+- ✅ `bc_train.py`: Supervised learning with PyTorch DataLoader
+- ✅ `tests/test_bc_system.py`: Comprehensive test suite for BC system
+- ✅ Integration with existing model architecture (MaskablePPO)
+- ✅ Color-balanced dataset (Black/White perspectives)
+
+**Files:**
+- `generate_bc_dataset.py`: BC dataset generation (RAI vs Model/Random)
+- `bc_train.py`: BC training script (supervised learning)
+- `tests/test_bc_system.py`: BC system tests
+- Run tests: `PYTHONPATH=/Users/bill/src/ReversiSB3 python tests/run_tests.py bc`
 
 ### Priority
 
-**Current Status**: Mixed mode training is active approach
-**BC Approach**: Backup plan if plateau persists after thorough mixed mode evaluation
+**Current Status**: BC implementation complete and ready to use
+**Next Steps**:
+1. Generate BC dataset: `python generate_bc_dataset.py --games 10000 --model <current_best> --output bc_dataset.pkl`
+2. Train BC model: `python bc_train.py --dataset bc_dataset.pkl --model bc_pretrained`
+3. Fine-tune with RL: `python sb-train.py --mode mixed -m bc_pretrained -e 500000 -p 4`
+4. Evaluate: `python sb-play.py -m bc_pretrained -e 200 -o RAI --rai-depth 2`
 
 ## Device Support
 

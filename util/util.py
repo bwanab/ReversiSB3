@@ -21,6 +21,22 @@ EMPTY = 0
 BLACK = 1
 WHITE = -1
 
+def get_device():
+    """
+    Detect and return the best available device for training.
+
+    Returns
+    -------
+    str
+        Device string: "mps", "cuda", or "cpu"
+    """
+    if th.backends.mps.is_available():
+        return "mps"
+    elif th.cuda.is_available():
+        return "cuda"
+    else:
+        return "cpu"
+
 def linear_schedule(initial_value: float) -> Callable[[float], float]:
     def func(progress_remaining: float) -> float:
         return progress_remaining * initial_value
@@ -60,7 +76,7 @@ def set_learning_rate(model: MaskablePPO, lr: float) -> None:
         model.lr_schedule = lambda _: lr
 
 def get_model(file, env, net_width=256, learning_rate = 1e-5, model_type="cnn", device="cpu"):
-    if os.path.isfile(file + ".zip"):
+    if file is not None and os.path.isfile(file + ".zip"):
         model = MaskablePPO.load(file, env=env)
         #### turns out, this is redundant since policy is always saved with model
         # model.policy = MaskableActorCriticPolicy.load(file + '_policy.zip')
