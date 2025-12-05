@@ -143,7 +143,8 @@ def bc_train(
     # Create fresh model
     print("Creating fresh MaskablePPO model...")
     env = ReversiEnvCNN()
-    device = get_device()
+    # device = get_device()
+    device = "cpu"
 
     # Construct full model path (same format as sb-train.py)
     model_file = f"models/{model_name}_CNN_test"
@@ -263,7 +264,13 @@ def bc_train(
         print(f"  Val Loss:   {val_loss:.4f}, Val Acc:   {100*val_acc:.2f}%")
         print()
 
-    # Save BC-pretrained model
+        # Save checkpoint after each epoch (allows early stopping)
+        model_path = f"models/{model_name}_CNN_test.zip"
+        model.save(model_path)
+        print(f"  ✓ Checkpoint saved: {model_path}")
+        print()
+
+    # Final save (redundant but ensures it's saved)
     model_path = f"models/{model_name}_CNN_test.zip"
     model.save(model_path)
 
