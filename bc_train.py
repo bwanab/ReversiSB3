@@ -264,10 +264,15 @@ def bc_train(
         print(f"  Val Loss:   {val_loss:.4f}, Val Acc:   {100*val_acc:.2f}%")
         print()
 
-        # Save checkpoint after each epoch (allows early stopping)
-        model_path = f"models/{model_name}_CNN_test.zip"
-        model.save(model_path)
-        print(f"  ✓ Checkpoint saved: {model_path}")
+        # Save checkpoint with epoch number (allows comparing different epochs)
+        epoch_checkpoint = f"models/{model_name}_epoch{epoch+1:02d}_CNN_test.zip"
+        model.save(epoch_checkpoint)
+        print(f"  ✓ Epoch checkpoint: {epoch_checkpoint}")
+
+        # Also save as "latest" (overwrites, convenient for resuming)
+        latest_path = f"models/{model_name}_CNN_test.zip"
+        model.save(latest_path)
+        print(f"  ✓ Latest saved: {latest_path}")
         print()
 
     # Final save (redundant but ensures it's saved)
