@@ -316,6 +316,8 @@ select:focus {
     padding: 8px;
     background: white;
     border-radius: 6px;
+    white-space: pre-wrap;
+    line-height: 1.6;
 }
 
 /* Game Record */

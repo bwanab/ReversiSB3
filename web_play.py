@@ -6,9 +6,10 @@ Provides visual board and click-to-move interface.
 
 from flask import Flask, render_template, jsonify, request
 import numpy as np
+import torch
 import argparse
 from util.reversi import ReversiEnvCNN
-from util.util import get_model, mask_fn, BLACK, WHITE
+from util.util import get_model, mask_fn, BLACK, WHITE, get_action
 
 
 app = Flask(__name__)
@@ -46,7 +47,7 @@ def get_valid_moves(env, board):
 
 
 def get_model_move(env, board):
-    """Get model's move using current policy."""
+    """Get model's move using current policy and return analysis."""
     model = game_state['model']
 
     # Set env.player to current player for mask_fn
@@ -62,10 +63,32 @@ def get_model_move(env, board):
     # Get action mask for current player
     action_mask = mask_fn(env)
 
-    # Model's predict method
-    action, _states = model.predict(obs, action_masks=action_mask, deterministic=True)
+    # Get action with probabilities using verbose mode
+    action, logits, valid_actions = get_action(model, obs, action_mask, deterministic=True, verbose=True)
 
-    return int(action)
+    # Convert logits to probabilities using softmax
+    softmax = torch.nn.Softmax(dim=0)
+    probs = softmax(logits).detach().numpy()
+
+    # Create analysis: list of (notation, probability) for top moves
+    analysis = []
+    if valid_actions is not None and len(valid_actions) > 0:
+        # Pair each action with its probability
+        action_probs = [(valid_actions[i], probs[i]) for i in range(len(valid_actions))]
+
+        # Sort by probability (descending)
+        action_probs.sort(key=lambda x: x[1], reverse=True)
+
+        # Take top 5 and convert to notation
+        for act, prob in action_probs[:5]:
+            notation = action_to_notation(int(act))
+            analysis.append({
+                'notation': notation,
+                'probability': float(prob),
+                'action': int(act)
+            })
+
+    return int(action), analysis
 
 
 def count_pieces(board):
@@ -293,8 +316,8 @@ def make_model_move():
                 'can_redo': len(game_state['redo_stack']) > 0
             })
 
-    # Model has valid moves - get model's action
-    action = get_model_move(env, board)
+    # Model has valid moves - get model's action and analysis
+    action, analysis = get_model_move(env, board)
 
     # Record move before executing
     board_before = env.board.copy()
@@ -309,7 +332,11 @@ def make_model_move():
     # Record the move in history
     record_move(action, player_color, board_before)
 
-    game_state['last_move'] = {'action': action, 'player': 'model'}
+    game_state['last_move'] = {
+        'action': action,
+        'player': 'model',
+        'analysis': analysis  # Include move analysis
+    }
 
     # Check if game is over
     winner = env.get_winner(board)

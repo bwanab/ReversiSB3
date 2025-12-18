@@ -214,7 +214,20 @@ function updateLastMoveDisplay(lastMove) {
     const rowNumber = row + 1; // 1-8
 
     const player = lastMove.player === 'model' ? 'Model' : 'You';
-    lastMoveDiv.textContent = `${player}: ${colLetter}${rowNumber}`;
+    let displayText = `${player}: ${colLetter}${rowNumber}`;
+
+    // If model move with analysis, show top move probabilities
+    if (lastMove.player === 'model' && lastMove.analysis && lastMove.analysis.length > 0) {
+        displayText += '\n';
+        const moveProbabilities = lastMove.analysis.map(move => {
+            const percentage = (move.probability * 100).toFixed(1);
+            const isChosen = move.action === action;
+            return isChosen ? `${move.notation}: ${percentage}% ★` : `${move.notation}: ${percentage}%`;
+        });
+        displayText += moveProbabilities.join(', ');
+    }
+
+    lastMoveDiv.textContent = displayText;
 }
 
 function showGameOver(winner, pieceCount) {
