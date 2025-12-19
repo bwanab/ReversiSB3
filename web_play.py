@@ -34,16 +34,69 @@ def board_to_list(board):
     return board[0].tolist()
 
 
-def get_valid_moves(env, board):
-    """Get list of valid moves as (row, col) tuples."""
+def get_valid_moves(env, board, include_probabilities=False):
+    """Get list of valid moves as (row, col) tuples.
+
+    Args:
+        env: The environment
+        board: Current board state
+        include_probabilities: If True, include model's probability for each move
+    """
     action_mask = mask_fn(env)
     valid_moves = []
+
+    # Get move probabilities if requested
+    move_probs = {}
+    if include_probabilities:
+        move_probs = get_move_probabilities(env, board)
+
     for i in range(64):
         if action_mask[i]:
             row = i // 8
             col = i % 8
-            valid_moves.append({'row': row, 'col': col, 'action': i})
+            move_entry = {'row': row, 'col': col, 'action': i}
+
+            # Add probability if available
+            if i in move_probs:
+                move_entry['probability'] = move_probs[i]
+
+            valid_moves.append(move_entry)
+
     return valid_moves
+
+
+def get_move_probabilities(env, board):
+    """Get model's probability distribution for all valid moves.
+
+    Returns:
+        dict: Mapping of action -> probability for each valid move
+    """
+    model = game_state['model']
+
+    # Get observation from current player's perspective
+    # If current player is WHITE, flip board so model sees WHITE as positive
+    if env.player == WHITE:
+        obs = board.copy() * -1
+    else:
+        obs = board.copy()
+
+    # Get action mask for current player
+    action_mask = mask_fn(env)
+
+    # Get action with probabilities using verbose mode
+    action, logits, valid_actions = get_action(model, obs, action_mask, deterministic=True, verbose=True)
+
+    # Convert logits to probabilities using softmax
+    softmax = torch.nn.Softmax(dim=0)
+    probs = softmax(logits).detach().numpy()
+
+    # Create mapping of action -> probability
+    move_probs = {}
+    if valid_actions is not None and len(valid_actions) > 0:
+        for i, act in enumerate(valid_actions):
+            move_probs[int(act)] = float(probs[i])
+
+    return move_probs
 
 
 def get_model_move(env, board):
@@ -144,7 +197,10 @@ def new_game():
 
     # Get initial state
     current_player = int(env.player)
-    valid_moves = get_valid_moves(env, board)
+
+    # Include probabilities if it's human's turn (not model's turn)
+    is_human_turn = (current_player != game_state['model_color'])
+    valid_moves = get_valid_moves(env, board, include_probabilities=is_human_turn)
     piece_count = count_pieces(board)
 
     response = {
@@ -249,7 +305,10 @@ def make_move():
 
             # Human has moves, model passed
             current_player = int(env.player)
-            valid_moves = get_valid_moves(env, board)
+
+            # Include probabilities since it's human's turn
+            valid_moves = get_valid_moves(env, board, include_probabilities=True)
+
             return jsonify({
                 'board': board_to_list(board),
                 'current_player': 'black' if current_player == BLACK else 'white',
@@ -304,7 +363,10 @@ def make_model_move():
         else:
             # Only opponent has moves - return to opponent
             current_player = int(env.player)
-            opponent_valid_moves = get_valid_moves(env, board)
+
+            # Include probabilities since it's human's turn
+            opponent_valid_moves = get_valid_moves(env, board, include_probabilities=True)
+
             return jsonify({
                 'board': board_to_list(board),
                 'current_player': 'black' if current_player == BLACK else 'white',
@@ -390,7 +452,9 @@ def make_model_move():
     # Game continues - human's turn
     # Capture current player BEFORE any other operations
     current_player = int(env.player)
-    valid_moves = get_valid_moves(env, board)
+
+    # Include probabilities since it's human's turn
+    valid_moves = get_valid_moves(env, board, include_probabilities=True)
 
     return jsonify({
         'board': board_to_list(board),
@@ -413,7 +477,10 @@ def get_game_state():
 
     board = env.board
     current_player = env.player
-    valid_moves = get_valid_moves(env, board)
+
+    # Include probabilities if it's human's turn
+    is_human_turn = (current_player != game_state['model_color'])
+    valid_moves = get_valid_moves(env, board, include_probabilities=is_human_turn)
     piece_count = count_pieces(board)
 
     return jsonify({
@@ -458,7 +525,10 @@ def undo():
 
     # Get current state
     current_player = int(env.player)
-    valid_moves = get_valid_moves(env, env.board)
+
+    # Include probabilities if it's human's turn
+    is_human_turn = (current_player != game_state['model_color'])
+    valid_moves = get_valid_moves(env, env.board, include_probabilities=is_human_turn)
     piece_count = count_pieces(env.board)
 
     return jsonify({
@@ -505,12 +575,14 @@ def redo():
 
     # Get current state
     current_player = int(env.player)
-    valid_moves = get_valid_moves(env, board)
-    piece_count = count_pieces(board)
 
     # Check if it's now the model's turn and game is not over
     model_color = game_state['model_color']
     is_model_turn = (current_player == model_color)
+
+    # Include probabilities if it's human's turn
+    valid_moves = get_valid_moves(env, board, include_probabilities=not is_model_turn)
+    piece_count = count_pieces(board)
 
     response = {
         'board': board_to_list(board),

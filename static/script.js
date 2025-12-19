@@ -176,6 +176,14 @@ function highlightValidMoves() {
         const cell = document.querySelector(`[data-action="${action}"]`);
         if (cell) {
             cell.classList.add('valid-move');
+
+            // If probability is available, display it on the cell
+            if (move.probability !== undefined) {
+                const probText = document.createElement('div');
+                probText.className = 'move-probability';
+                probText.textContent = `${(move.probability * 100).toFixed(1)}%`;
+                cell.appendChild(probText);
+            }
         }
     });
 }
