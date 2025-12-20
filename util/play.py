@@ -15,6 +15,8 @@ def play(model, num_games, opponent, deterministic, verbose):
         move_db = get_move_db()
 
     for i in range(num_games):
+        # Reset environment for each new game
+        obs, _ = env.reset()
         moves = []
         term = False
 
@@ -24,11 +26,11 @@ def play(model, num_games, opponent, deterministic, verbose):
             player = env.player
             if verbose:
                 pass
-                # render(board)
+                render(board)
             action, probs, actions = get_action(model, board, mask_fn(env), deterministic=deterministic, verbose=verbose)
             if verbose:
                 m = torch.nn.Softmax(dim=0)
-                # print(action, actions, m(probs).detach().numpy())
+                print(action, actions, m(probs).detach().numpy())
             if verbose:
                 mn = get_move_notation(env, player, action)
                 moves.append(mn)
@@ -40,7 +42,8 @@ def play(model, num_games, opponent, deterministic, verbose):
                 # print(per_player_diff)
 
             if term:
-                term_obs = info['terminal_observation']
+                # Get terminal observation - might be in info or just use obs
+                term_obs = info.get('terminal_observation', obs)
                 black_score = np.sum(term_obs == 1)
                 white_score = np.sum(term_obs == -1)
                 if verbose:

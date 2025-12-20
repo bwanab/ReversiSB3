@@ -384,10 +384,11 @@ Usage Examples:
                        help="Ratio of RAI training in mixed mode (default: 0.05)")
     parser.add_argument("--rai-depth", type=int, default=2,
                        help="RAI minimax search depth for mixed mode (default: 2)")
-    
+
+    parser.add_argument("--edax-depth", type=int, default=1, help="search depth when opponent is RAI or Edax")
+
     # Model and environment configuration
     parser.add_argument("-m", "--model", default="dorkQ", help="Model name")
-    parser.add_argument("-dp", "--depth", default="2", help="search depth when opponent is RAI")
     parser.add_argument("-t", "--test-opponent", default="Random", help="Test opponent type")
     parser.add_argument("-w", "--net-width", type=int, default=512, help="Neural network width - Not for CNNs!")
     parser.add_argument("-lr", "--learning-rate", type=float, default=2e-5, help="Learning rate (default: 2e-5)")
@@ -414,7 +415,6 @@ Usage Examples:
     if args.epochs is not None:
         print(f"⚠️  Legacy --epochs argument ignored. Use --mode instead for training configuration.")
 
-    depth = int(args.depth)
 
     file = "models/" + args.model + "_CNN_test"
     checkpoint_cb = CheckpointCallback(
@@ -431,8 +431,21 @@ Usage Examples:
     print(f"🚀 Starting training with model: {args.model}")
     print(f"💻 Using device: {device}")
     
+        # Handle legacy opponent parameter (for backward compatibility)
+    if args.opponent is not None:
+        print(f"\n⚠️  Using legacy opponent parameter: {args.opponent}")
+        print(f"   Consider using --mode for more flexible training options")
+        print(f"🎯 Training against {args.opponent} opponent (depth={args.edax_depth})")
+
+        # Set up environment with specified opponent
+        env.set_opponent(args.opponent, args.opp_model, depth=args.edax_depth)
+
+        # Train for specified timesteps
+        learn_helper(PlayCallback, args, file, checkpoint_cb, env, args.net_width, model, args.timesteps)
+
+
     # Execute training based on mode
-    if args.mode == "random":
+    elif args.mode == "random":
         train_random_only(model, env, args, file, checkpoint_cb, args.net_width, args.timesteps)
 
     elif args.mode == "selfplay":
