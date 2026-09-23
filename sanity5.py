@@ -1,5 +1,5 @@
 from util.util import render, mask_fn
-from util.reversi import ReversiEnvCNN
+from util.reversi import build_reversi
 from util.reversi_cnn import ReversiCNN
 from sb3_contrib import MaskablePPO
 import numpy as np
@@ -15,7 +15,7 @@ def sanity5():
         features_extractor_kwargs=dict(features_dim=128),
         normalize_images=False
         )
-    env = ReversiEnvCNN.build_reversi()
+    env = build_reversi()
     observation, _ = env.reset()
     m = MaskablePPO("CnnPolicy", env, policy_kwargs=policy_kwargs)
     while True:

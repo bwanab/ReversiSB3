@@ -1,7 +1,7 @@
-from util.reversi import ReversiEnvCNN
+from util.reversi import build_reversi
 
 def sanity1():
-    env = ReversiEnvCNN.build_reversi()
+    env = build_reversi()
     obs, _ = env.reset()
     print(env.get_valid(obs))
     print(env.all_valid_actions(obs))
