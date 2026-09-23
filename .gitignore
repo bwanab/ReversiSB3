@@ -12,5 +12,8 @@ boardgame2/**
 venv-sb/**
 *.log/**
 models/**
+*.pkl
+*.png
+.ipynb_checkpoints/
 
 
