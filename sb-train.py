@@ -250,6 +250,73 @@ def train_mixed_three_way(model, env, args, file, checkpoint_cb, net_width, time
     except Exception as e:
         print(f"⚠️  Warning: Could not clean up temp file: {e}")
 
+def train_edax_curriculum(model, env, args, file, checkpoint_cb, net_width, timesteps,
+                          edax_depths, edax_ratios, random_ratio=0.0, refresh_interval=None):
+    """Mode 5: Train with multiple Edax depths for curriculum learning.
+
+    Parameters
+    ----------
+    edax_depths : list of int
+        List of Edax depths to train against (e.g., [6, 7])
+    edax_ratios : list of float
+        Fraction of timesteps for each Edax depth (e.g., [0.7, 0.2])
+    random_ratio : float
+        Fraction of timesteps against random opponent (default: 0.0)
+    refresh_interval : int
+        How often to checkpoint and evaluate (default: timesteps // 5)
+    """
+    if refresh_interval is None:
+        refresh_interval = timesteps // 5
+
+    # Normalize ratios to ensure they sum to 1.0
+    total_ratio = sum(edax_ratios) + random_ratio
+    edax_ratios = [r / total_ratio for r in edax_ratios]
+    random_ratio /= total_ratio
+
+    # Calculate timesteps for each opponent
+    edax_timesteps = [int(timesteps * r) for r in edax_ratios]
+    random_timesteps = timesteps - sum(edax_timesteps)  # Ensure exact total
+
+    print(f"🎯 Training Mode: Edax Curriculum for {timesteps:,} timesteps")
+    for depth, ts, ratio in zip(edax_depths, edax_timesteps, edax_ratios):
+        print(f"   - Edax-{depth}: {ts:,} timesteps ({100*ratio:.1f}%)")
+    if random_timesteps > 0:
+        print(f"   - Random: {random_timesteps:,} timesteps ({100*random_ratio:.1f}%)")
+    print(f"   - Refresh interval: {refresh_interval:,} timesteps")
+
+    timesteps_trained = 0
+    while timesteps_trained < timesteps:
+        # Determine timesteps for this block
+        remaining = timesteps - timesteps_trained
+        block_timesteps = min(refresh_interval, remaining)
+
+        # Calculate timesteps for each opponent in this block
+        block_edax = [int(block_timesteps * r) for r in edax_ratios]
+        block_random = block_timesteps - sum(block_edax)
+
+        print(f"\n--- Block {timesteps_trained//refresh_interval + 1}: {block_timesteps:,} timesteps ---")
+        depth_str = " | ".join([f"Edax-{d}: {ts:,}" for d, ts in zip(edax_depths, block_edax)])
+        if block_random > 0:
+            depth_str += f" | Random: {block_random:,}"
+        print(f"    {depth_str}")
+
+        # Train against each Edax depth
+        for depth, block_ts in zip(edax_depths, block_edax):
+            if block_ts > 0:
+                print(f"🧠 Edax-{depth} training: {block_ts:,} timesteps")
+                env.set_opponent("Edax", None, depth=depth)
+                learn_helper(PlayCallback, args, file, checkpoint_cb, env, net_width, model, block_ts)
+
+        # Train against random
+        if block_random > 0:
+            print(f"🎲 Random training: {block_random:,} timesteps")
+            env.set_opponent("Random", None)
+            learn_helper(PlayCallback, args, file, checkpoint_cb, env, net_width, model, block_random)
+
+        timesteps_trained += block_timesteps
+
+    print(f"✅ Edax curriculum training complete!")
+
 def train_sequential(model, env, args, file, checkpoint_cb, net_width, random_timesteps, selfplay_timesteps, random_ratio=0.2):
     """Mode 3: Train random-only, then self-play mixed with optional LR decay."""
     total_timesteps = random_timesteps + selfplay_timesteps
@@ -360,8 +427,8 @@ Usage Examples:
                     formatter_class=argparse.RawDescriptionHelpFormatter)
 
     # Training mode selection
-    parser.add_argument("--mode", choices=["random", "selfplay", "sequential", "mixed"], default="random",
-                       help="Training mode: random, selfplay, sequential, or mixed")
+    parser.add_argument("--mode", choices=["random", "selfplay", "sequential", "mixed", "edax-curriculum"], default="random",
+                       help="Training mode: random, selfplay, sequential, mixed, or edax-curriculum")
     
     # Timesteps configuration
     parser.add_argument("--timesteps", type=int, default=200_000,
@@ -382,10 +449,17 @@ Usage Examples:
                        help="Ratio of self-play in mixed mode (default: 0.75)")
     parser.add_argument("--rai-ratio", type=float, default=0.05,
                        help="Ratio of RAI training in mixed mode (default: 0.05)")
-    parser.add_argument("--rai-depth", type=int, default=2,
+    parser.add_argument("-d", "--rai-depth", type=int, default=2,
                        help="RAI minimax search depth for mixed mode (default: 2)")
 
-    parser.add_argument("--edax-depth", type=int, default=1, help="search depth when opponent is RAI or Edax")
+    parser.add_argument("-x", "--edax-depth", type=int, default=2,
+                        help="search depth when opponent is RAI or Edax")
+
+    # Edax curriculum mode arguments
+    parser.add_argument("--edax-depths", type=str, default=None,
+                       help="Comma-separated Edax depths for curriculum mode (e.g., '6,7')")
+    parser.add_argument("--edax-ratios", type=str, default=None,
+                       help="Comma-separated ratios for each Edax depth (e.g., '0.7,0.2')")
 
     # Model and environment configuration
     parser.add_argument("-m", "--model", default="dorkQ", help="Model name")
@@ -438,6 +512,7 @@ Usage Examples:
         print(f"🎯 Training against {args.opponent} opponent (depth={args.edax_depth})")
 
         # Set up environment with specified opponent
+        print(f" opponent create with edax depth = {args.edax_depth}")
         env.set_opponent(args.opponent, args.opp_model, depth=args.edax_depth)
 
         # Train for specified timesteps
@@ -462,6 +537,30 @@ Usage Examples:
         train_mixed_three_way(model, env, args, file, checkpoint_cb, args.net_width,
                             args.timesteps, args.selfplay_ratio, args.random_ratio,
                             args.rai_ratio, refresh_interval, args.rai_depth)
+
+    elif args.mode == "edax-curriculum":
+        # Parse comma-separated depths and ratios
+        if args.edax_depths is None or args.edax_ratios is None:
+            print("❌ Error: --edax-depths and --edax-ratios are required for edax-curriculum mode")
+            print("   Example: --edax-depths 6,7 --edax-ratios 0.7,0.2 --random-ratio 0.1")
+            exit(1)
+
+        try:
+            edax_depths = [int(d.strip()) for d in args.edax_depths.split(',')]
+            edax_ratios = [float(r.strip()) for r in args.edax_ratios.split(',')]
+        except ValueError as e:
+            print(f"❌ Error parsing depths or ratios: {e}")
+            print("   Example: --edax-depths 6,7 --edax-ratios 0.7,0.2")
+            exit(1)
+
+        if len(edax_depths) != len(edax_ratios):
+            print(f"❌ Error: Number of depths ({len(edax_depths)}) must match number of ratios ({len(edax_ratios)})")
+            exit(1)
+
+        refresh_interval = args.refresh_interval or (args.timesteps // 5)
+        train_edax_curriculum(model, env, args, file, checkpoint_cb, args.net_width,
+                            args.timesteps, edax_depths, edax_ratios,
+                            args.random_ratio, refresh_interval)
 
     # Save the final model
     model.save(file)

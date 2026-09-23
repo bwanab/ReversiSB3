@@ -171,12 +171,26 @@ def bc_train(
         print(f"Source: {metadata.get('source', 'Unknown')}")
         print(f"Games: {metadata.get('total_games', '?'):,}")
     elif 'dataset' in dataset_package:
-        # RAI format (backward compatibility)
+        # BC format (RAI, Edax, or combined)
         dataset = dataset_package['dataset']
         metadata = dataset_package['metadata']
         print(f"Dataset loaded: {len(dataset):,} examples")
-        print(f"Metadata: {metadata['num_games']:,} games, "
-              f"RAI depth={metadata['rai_depth']}")
+
+        # Print metadata based on what's available
+        if 'rai_depth' in metadata:
+            # RAI BC dataset
+            print(f"Metadata: {metadata['num_games']:,} games, "
+                  f"RAI depth={metadata['rai_depth']}")
+        elif 'edax_depths' in metadata:
+            # Edax BC dataset (possibly combined with wthor)
+            print(f"Metadata: {metadata.get('num_games', 'N/A')} new games")
+            print(f"  Edax depths: {metadata['edax_depths']}")
+            if metadata.get('merged_from'):
+                print(f"  Merged from: {metadata['merged_source']}")
+                print(f"  Total moves: {metadata['total_moves']:,}")
+        else:
+            # Generic metadata
+            print(f"Metadata: {metadata.get('num_games', 'Unknown')} games")
     else:
         raise ValueError("Unknown dataset format: expected 'moves' or 'dataset' key")
     print()
