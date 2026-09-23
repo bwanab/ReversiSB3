@@ -47,13 +47,33 @@ if __name__ == '__main__':
     # black_wins = play_games("models/" + args.model, n_games, verbose=True, opponentName=args.opponent,deterministic=args.deterministic)
     start = time.time()
     deterministic = not bool(args.non_deterministic)
-    black_wins = play_games("models/" + args.model,
-                            n_games, 
-                            verbose=bool(args.verbose), 
-                            opponentName=args.opponent,
-                            deterministic=deterministic, 
-                            opponent_model=args.opp_model,
-                            depth=depth)
+    if args.opponent == "Model":
+        model_wins = play_games("models/" + args.model,
+                                n_games // 2, 
+                                verbose=bool(args.verbose), 
+                                opponentName=args.opponent,
+                                deterministic=deterministic, 
+                                opponent_model=args.opp_model,
+                                depth=depth)
+        opponent_wins = play_games(args.opp_model,
+                                n_games // 2, 
+                                verbose=bool(args.verbose), 
+                                opponentName=args.opponent,
+                                deterministic=deterministic, 
+                                opponent_model="models/" + args.model,
+                                depth=depth)
+        print(f"Model wins: {model_wins}, Opponent wins: {opponent_wins}, Model advantage: {(n_games // 2 + model_wins - opponent_wins) / n_games}%")
+        
+    else:
+        black_wins = play_games("models/" + args.model,
+                                n_games, 
+                                verbose=bool(args.verbose), 
+                                opponentName=args.opponent,
+                                deterministic=deterministic, 
+                                opponent_model=args.opp_model,
+                                depth=depth)
+        print(f"Black wins: {100 * black_wins / n_games}%")
+
     end = time.time()
     print(f"time elapsed: {end - start}")
-    print(f"Black wins: {100 * black_wins / n_games}%")
+
