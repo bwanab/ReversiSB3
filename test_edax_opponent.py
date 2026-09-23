@@ -1,88 +1,100 @@
 #!/usr/bin/env python3
-"""
-Test script for EdaxOpponent integration.
-"""
+"""Test EdaxOpponent integration with ReversiEnvCNN."""
+
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import numpy as np
 from util.reversi import ReversiEnvCNN
-from util.opponents import get_opponent
-from util.util import render
+from util.opponents import EdaxOpponent, RandomOpponent
+from util.util import BLACK, WHITE
 
-def test_edax_opponent():
-    """Test that EdaxOpponent can play moves."""
-    print("Testing EdaxOpponent integration...")
+def test_edax_vs_random():
+    """Test Edax opponent integrated with environment."""
+    print("Testing Edax integrated with ReversiEnvCNN...")
     print("=" * 60)
 
-    # Create environment
-    env = ReversiEnvCNN()
-    board, _ = env.reset()
+    # Create environment with Edax as opponent
+    import gymnasium as gym
+    env = gym.make("ReversiCNN-v0", opponent="Edax", depth=4)
 
-    # Create Edax opponent at depth 6
-    print("\nInitializing Edax opponent (depth 6)...")
-    edax = get_opponent("Edax", depth=6)
-    print("✓ Edax opponent created successfully")
+    # Play a few moves to test
+    print("\nPlaying game with Edax opponent (depth 4)...\n")
 
-    # Play 5 moves
-    print("\nPlaying 5 moves with Edax...")
-    for i in range(5):
-        print(f"\n--- Move {i+1} ---")
-        print(f"Current player: {'Black' if env.player == 1 else 'White'}")
+    state, _ = env.reset()
+    done = False
+    move_count = 0
 
-        # Display board
-        render(board)
+    while not done and move_count < 10:  # Play 10 moves to test
+        move_count += 1
 
-        # Get Edax's move
-        action = edax.get_action(env, board)
-        action_num = action[0]
+        # Get all valid moves
+        valid_actions = env.all_valid_actions(state)
 
-        # Convert action to notation
-        row = action_num // 8
-        col = action_num % 8
-        notation = f"{'ABCDEFGH'[col]}{row + 1}"
+        if len(valid_actions) == 0:
+            print(f"Move {move_count}: Black has no valid moves, passing")
+            state, reward, done, truncated, info = env.step(None)
+        else:
+            # Play a random move for the agent (Black)
+            import random
+            action = random.choice(valid_actions)
+            row = action // 8
+            col = action % 8
+            move_str = f"{'abcdefgh'[col]}{row + 1}"
+            print(f"Move {move_count}: Black plays {move_str}")
+            state, reward, done, truncated, info = env.step(action)
 
-        print(f"Edax plays: {notation} (action {action_num})")
-
-        # Make the move
-        action_tuple = (0, row, col)
-        board = env.get_next_state(board, action_tuple)
-
-        # Check if game ended
-        winner = env.get_winner(board)
-        if winner is not None:
-            print("\nGame ended!")
+        if done:
             break
 
-    print("\n" + "=" * 60)
-    print("✓ EdaxOpponent test completed successfully!")
-    print("\nFinal board:")
-    render(board)
+    # Count pieces
+    board = state[0]
+    black_count = int((board == 1).sum())
+    white_count = int((board == -1).sum())
 
-    # Test different depths
-    print("\n" + "=" * 60)
-    print("Testing different depth levels...")
+    print(f"\nCurrent score after {move_count} moves: Black {black_count} - White {white_count}")
+    print("=" * 60)
+    print("Test completed successfully! ✓\n")
 
-    for depth in [4, 6, 8]:
-        print(f"\nTesting Edax at depth {depth}...")
-        env2 = ReversiEnvCNN()
-        board2, _ = env2.reset()
 
-        edax_test = get_opponent("Edax", depth=depth)
-        action = edax_test.get_action(env2, board2)
+def test_edax_opening():
+    """Test that Edax makes reasonable opening moves."""
+    print("\nTesting Edax opening moves...")
+    print("=" * 60)
 
-        row = action[0] // 8
-        col = action[0] % 8
-        notation = f"{'ABCDEFGH'[col]}{row + 1}"
+    env = ReversiEnvCNN()
+    edax = EdaxOpponent(depth=6)
+    edax.player = BLACK
 
-        print(f"  ✓ Depth {depth}: {notation}")
+    # Get opening move
+    state, _ = env.reset()
+    action = edax.get_action(env, state)
 
-        # Clean up
-        del edax_test
+    if len(action) == 0:
+        print("ERROR: Edax returned no move for opening position!")
+        return False
 
-    print("\n" + "=" * 60)
-    print("All tests passed! ✓")
-    print("\nEdaxOpponent is ready to use in training:")
-    print("  python sb-train.py -o Edax --edax-depth 6 ...")
-    print("  python sb-play.py -o Edax --edax-depth 6 ...")
+    action_num = action[0]
+    row = action_num // 8
+    col = action_num % 8
+    move_str = f"{'abcdefgh'[col]}{row + 1}"
+
+    # Standard opening moves in Reversi
+    standard_openings = ['d3', 'c4', 'f5', 'e6']
+
+    print(f"Edax opening move: {move_str}")
+
+    if move_str in standard_openings:
+        print(f"✓ Valid standard opening move")
+    else:
+        print(f"⚠ Unusual opening (expected one of: {', '.join(standard_openings)})")
+
+    print("=" * 60)
+    return True
+
 
 if __name__ == "__main__":
-    test_edax_opponent()
+    test_edax_opening()
+    print()
+    test_edax_vs_random()

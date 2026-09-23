@@ -78,11 +78,14 @@ class RandomOpponent(Opponent):
         return random_action(env, state)
 
 class EdaxOpponent(Opponent):
-    """Opponent using Edax engine via Python bindings.
+    """Opponent using Edax engine via client/server architecture.
 
-    Edax is a fast C-based Othello/Reversi engine that can search much deeper
-    than Python-based engines. This implementation uses direct Python bindings
-    for ~1000x faster performance than the GTP protocol.
+    Edax runs in a standalone server process. This opponent connects via
+    Unix socket for move requests. This architecture is completely safe for
+    multiprocessing (SB3 parallel environments).
+
+    Start the server first:
+        python edax_server.py
 
     Performance:
     - Depth 4: ~0.01s per move (~100 moves/sec)
@@ -92,19 +95,20 @@ class EdaxOpponent(Opponent):
 
     def __init__(self, **kwargs):
         super().__init__()
-        from util.edax_engine import EdaxEngine
+        from util.edax_client import EdaxClient
 
         self.depth = kwargs.get("depth", 6)
+        socket_path = kwargs.get("socket_path", "/tmp/edax_server.sock")
 
-        # Initialize Edax engine with direct bindings (no GTP overhead)
-        self.edax = EdaxEngine(depth=self.depth)
+        # Create client (lightweight, multiprocessing-safe)
+        self.edax = EdaxClient(socket_path=socket_path, depth=self.depth)
 
     def get_action(self, env, state):
         """Get Edax's move for current position.
 
         This is a stateless implementation - no synchronization or move
         history tracking needed. Just pass the current board state to Edax
-        and get back the best move.
+        server and get back the best move.
 
         Args:
             env: Game environment (not used, state contains all info)
@@ -120,7 +124,7 @@ class EdaxOpponent(Opponent):
             # Since self.player = -1 for opponents, this flips White to 1
             alt_state = state * self.player
 
-            # Get Edax's move for this flipped position
+            # Get Edax's move via client (server communication)
             move = self.edax.get_move(alt_state)
 
             if move is None:
@@ -137,8 +141,7 @@ class EdaxOpponent(Opponent):
             return random_action(env, state)
 
     def __del__(self):
-        """Cleanup - EdaxEngine handles its own cleanup."""
-        # EdaxEngine's __del__ will call edax_destroy
+        """Cleanup - client is stateless, nothing to clean up."""
         pass
 
 opponent_map = {}

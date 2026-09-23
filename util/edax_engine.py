@@ -2,7 +2,7 @@
 Python bindings to Edax engine via ctypes.
 
 Provides a clean Python interface to the Edax Reversi engine compiled
-as a shared library, bypassing the GTP protocol for direct, fast function calls.
+as a shared library. Used by edax_server.py for the client/server architecture.
 """
 
 import ctypes
@@ -105,7 +105,6 @@ class EdaxEngine:
         for row in range(8):
             for col in range(8):
                 # Bit position: row * 8 + col (0-63)
-                # Mapping: a1=0, b1=1, ..., h1=7, a2=8, ..., h8=63
                 bit_pos = row * 8 + col
                 cell = board[row, col]
 
