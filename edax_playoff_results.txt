@@ -1,0 +1,40 @@
+epoch01
+Model wins: 49, Opponent wins: 11, Model advantage: 0.88%
+epoch02
+Model wins: 42, Opponent wins: 21, Model advantage: 0.71%
+epoch03
+Model wins: 37, Opponent wins: 28, Model advantage: 0.59%
+epoch04
+Model wins: 40, Opponent wins: 33, Model advantage: 0.57%
+epoch05
+Model wins: 39, Opponent wins: 33, Model advantage: 0.56%
+epoch06
+Model wins: 32, Opponent wins: 29, Model advantage: 0.53%
+epoch07
+Model wins: 32, Opponent wins: 35, Model advantage: 0.47%
+epoch08
+Model wins: 32, Opponent wins: 33, Model advantage: 0.49%
+epoch09
+Model wins: 34, Opponent wins: 31, Model advantage: 0.53%
+epoch10
+Model wins: 31, Opponent wins: 32, Model advantage: 0.49%
+epoch11
+Model wins: 34, Opponent wins: 37, Model advantage: 0.47%
+epoch12
+Model wins: 35, Opponent wins: 32, Model advantage: 0.53%
+epoch13
+Model wins: 33, Opponent wins: 27, Model advantage: 0.56%
+epoch14
+Model wins: 38, Opponent wins: 28, Model advantage: 0.6%
+epoch15
+Model wins: 32, Opponent wins: 33, Model advantage: 0.49%
+epoch16
+Model wins: 38, Opponent wins: 27, Model advantage: 0.61%
+epoch17
+Model wins: 31, Opponent wins: 30, Model advantage: 0.51%
+epoch18
+Model wins: 26, Opponent wins: 32, Model advantage: 0.44%
+epoch19
+Model wins: 36, Opponent wins: 28, Model advantage: 0.58%
+epoch20
+Model wins: 32, Opponent wins: 32, Model advantage: 0.5%

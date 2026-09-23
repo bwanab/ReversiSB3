@@ -1,0 +1,307 @@
+1. build the wthor database
+<cmd tbd>
+
+2. add edax games where edax levels 7,8,9 are played against wthor_rl_CNN_test model.
+python generate_edax_bc_dataset.py \
+    --games 9000 \
+    --depths 7,8,9 \
+    --model models/wthor_rl_CNN_test \
+    --model-ratio 0.8 \
+    --merge wthor_bc_dataset_with_values.pkl \
+    --output combined_bc_dataset.pkl
+
+3. pretrain:
+python bc_train.py \
+    --dataset combined_bc_dataset.pkl \
+    --model edax_bc_pretrained \
+    --epochs 20 \
+    --batch-size 256 \
+    --learning-rate 1e-4 \
+    --net-width 512
+
+4. After looking at results, select epoch18 as the most promising. Start RL training with:
+python sb-train.py --mode edax-curriculum \
+    --edax-depths 1,2,3 \
+    --edax-ratios 0.3,0.3,0.3 \
+    --random-ratio 0.1 \
+    --timesteps 500000 \
+    -m edax_bc_pretrained \
+    --refresh-interval 100000 \
+    -lr 1e-5
+
+edax-2 95%, edax-3 75%, edax-4 0%
+
+5. self-train
+python sb-train.py --mode selfplay \
+    --random-ratio 0.1 \
+    --timesteps 500000 \
+    -m edax_bc_pretrained \
+    --refresh-interval 100000 \
+    -lr 1e-5
+
+edax-3 1%
+
+6. more edax training
+python sb-train.py --mode edax-curriculum \
+    --edax-depths 2,3,4 \
+    --edax-ratios 0.3,0.3,0.3 \
+    --random-ratio 0.1 \
+    --timesteps 500000 \
+    -m edax_bc_pretrained \
+    --refresh-interval 100000 \
+    -lr 1e-5
+
+
+
+edax-3 85%, edax-4 0.0%
+
+7. more self-train
+python sb-train.py --mode selfplay \
+    --random-ratio 0.1 \
+    --timesteps 200000 \
+    -m edax_bc_pretrained \
+    --refresh-interval 100000 \
+    -lr 1e-5
+
+edax-3 2%
+
+8. more edax training
+python sb-train.py --mode edax-curriculum \
+    --edax-depths 3,4,5 \
+    --edax-ratios 0.3,0.3,0.3 \
+    --random-ratio 0.1 \
+    --timesteps 500000 \
+    -m edax_bc_pretrained \
+    --refresh-interval 100000 \
+    -lr 1e-5
+
+edax-3 45%, edax-4 79%, edax-5 85%
+
+9. more self-train
+python sb-train.py --mode selfplay \
+    --random-ratio 0.1 \
+    --timesteps 200000 \
+    -m edax_bc_pretrained \
+    --refresh-interval 50000 \
+    -lr 5e-6
+
+edax-3 56%, edax-4 62%, edax-5 73%, edax-6 0%
+
+10. more edax training
+python sb-train.py --mode edax-curriculum \
+    --edax-depths 4,5,6 \
+    --edax-ratios 0.3,0.3,0.3 \
+    --random-ratio 0.1 \
+    --timesteps 1000000 \
+    -m edax_bc_pretrained \
+    --refresh-interval 100000 \
+    -lr 3e-6
+
+edax-3 53%, edax-4 81%, edax-5 91%, edax-6 0%
+
+11. more self-train
+python sb-train.py --mode selfplay \
+    --random-ratio 0.1 \
+    --timesteps 200000 \
+    -m edax_bc_pretrained \
+    --refresh-interval 50000 \
+    -lr 3e-6
+
+edax-3 73%, edax-4 81%, edax-5 89%, edax-6 0%
+
+12. more edax training
+python sb-train.py --mode edax-curriculum \
+    --edax-depths 5,6,7 \
+    --edax-ratios 0.3,0.3,0.3 \
+    --random-ratio 0.1 \
+    --timesteps 1000000 \
+    -m edax_bc_pretrained \
+    --refresh-interval 100000 \
+    -lr 3e-6
+
+edax-3 42%, edax-4 76%, edax-5 82%, edax-6 0%, edax-7 2%
+
+13. more self-train
+python sb-train.py --mode selfplay \
+    --random-ratio 0.1 \
+    --timesteps 200000 \
+    -m edax_bc_pretrained \
+    --refresh-interval 50000 \
+    -lr 3e-6
+
+edax-3 53%, edax-4 56%, edax-5 76%, edax-6 0%, edax-7 0%
+
+14. more edax training
+python sb-train.py --mode edax-curriculum \
+    --edax-depths 6,7,8 \
+    --edax-ratios 0.3,0.3,0.3 \
+    --random-ratio 0.1 \
+    --timesteps 1000000 \
+    -m edax_bc_pretrained \
+    --refresh-interval 100000 \
+    -lr 2e-6
+
+edax-3 55%, edax-4 1%, edax-5 0%, edax-6 20%, edax-7 37%, edax-8 1%
+
+15. more self-train
+python sb-train.py --mode selfplay \
+    --random-ratio 0.1 \
+    --timesteps 200000 \
+    -m edax_bc_pretrained \
+    --refresh-interval 50000 \
+    -lr 2e-6
+
+edax-3 56%, edax-4 36%, edax-5 58%, edax-6 19%, edax-7 34%, edax-8 0%
+
+16. more edax training
+python sb-train.py --mode edax-curriculum \
+    --edax-depths 5,6,7,8,9 \
+    --edax-ratios 0.2,0.2,0.2,0.2,0.2 \
+    --random-ratio 0.0 \
+    --timesteps 2000000 \
+    -m edax_bc_pretrained \
+    --refresh-interval 100000 \
+    -lr 2e-6
+
+edax-3 48%, edax-4 0%, edax-5 59%, edax-6 83%, edax-7 45%, edax-8 0%
+
+17. more self-train
+python sb-train.py --mode selfplay \
+    --random-ratio 0.1 \
+    --timesteps 200000 \
+    -m edax_bc_pretrained \
+    --refresh-interval 50000 \
+    -lr 1e-6
+
+edax-3 59%, edax-4 0%, edax-5 66%, edax-6 81%, edax-7 41%, edax-8 0%
+
+16. more edax training
+python sb-train.py --mode edax-curriculum \
+    --edax-depths 3,4,5,6,7,8,9 \
+    --edax-ratios 0.1,0.1,0.1,0.1,0.2,0.2,0.2 \
+    --random-ratio 0.0 \
+    --timesteps 2000000 \
+    -m edax_bc_pretrained \
+    --refresh-interval 100000 \
+    -lr 1e-6
+
+edax-3 81%, edax-4 38%, edax-5 88%, edax-6 84%, edax-7 66%, edax-8 0%
+
+17. Some mixed mode training
+python sb-train.py \
+    --mode mixed \
+    -m edax_bc_pretrained \
+    -e 500000 \
+    -p 4 \
+    --selfplay-ratio 0.75 \
+    --rai-ratio 0.20 \
+    --rai-depth 1 \
+    -lr 1e-6
+
+edax-3 88%, edax-4 24%, edax-5 91%, edax-6 81%, edax-7 62%, edax-8 0%
+
+18. more edax training
+python sb-train.py --mode edax-curriculum \
+    --edax-depths 3,4,5,6,7,8,9 \
+    --edax-ratios 0.1,0.1,0.1,0.1,0.1,0.3,0.2 \
+    --random-ratio 0.0 \
+    --timesteps 2000000 \
+    -m edax_bc_pretrained \
+    --refresh-interval 100000 \
+    -lr 1e-6
+
+edax-3 81%, edax-4 25%, edax-5 89%, edax-6 94%, edax-7 66%, edax-8 0%
+
+19. More mixed mode trainging
+ python sb-train.py \
+    --mode mixed \
+    -m edax_bc_pretrained \
+    -e 1000000 \
+    -p 4 \
+    --selfplay-ratio 0.80 \
+    --rai-ratio 0.15 \
+    --rai-depth 1 \
+    -lr 1e-6
+
+edax-3 89%, edax-4 51%, edax-5 81%, edax-6 75%, edax-7 65%, edax-8 0%
+
+20. More edax training
+
+python sb-train.py --mode edax-curriculum \
+    --edax-depths 4,7,8,9 \
+    --edax-ratios 0.2,0.2,0.3,0.3 \
+    --random-ratio 0.0 \
+    --timesteps 1000000 \
+    -m edax_bc_pretrained \
+    --refresh-interval 100000 \
+    -lr 5e-7
+
+edax-3 82%, edax-4 88%, edax-5 84%, edax-6 1%, edax-7 72%, edax-8 0%
+
+21. And, yet more edax training
+
+python sb-train.py --mode edax-curriculum \
+    --edax-depths 6,7,8,9 \
+    --edax-ratios 0.2,0.2,0.3,0.3 \
+    --random-ratio 0.0 \
+    --timesteps 1000000 \
+    -m edax_bc_pretrained \
+    --refresh-interval 100000 \
+    -lr 5e-7
+
+edax-3 73%, edax-4 81%, edax-5 67%, edax-6 91%, edax-7 70%, edax-8 0%
+
+22. More self-play training
+
+ python sb-train.py \
+    --mode mixed \
+    -m edax_bc_pretrained \
+    -e 1000000 \
+    -p 4 \
+    --selfplay-ratio 0.85 \
+    --rai-ratio 0.10 \
+    --rai-depth 1 \
+    -lr 5e-7
+
+edax-3 85%, edax-4 82%, edax-5 67%, edax-6 80%, edax-7 67%, edax-8 0%
+
+23. And, yet more edax training
+
+python sb-train.py --mode edax-curriculum \
+    --edax-depths 4,5,6,7,8,9 \
+    --edax-ratios 0.1,0.1,0.2,0.2,0.2,0.2 \
+    --random-ratio 0.0 \
+    --timesteps 2000000 \
+    -m edax_bc_pretrained \
+    --refresh-interval 100000 \
+    -lr 3e-7
+
+edax-3 88%, edax-4 97%, edax-5 96%, edax-6 98%, edax-7 67%, edax-8 0%, edax-9 24%
+
+24. More self-play training
+
+ python sb-train.py \
+    --mode mixed \
+    -m edax_bc_pretrained \
+    -e 1000000 \
+    -p 4 \
+    --selfplay-ratio 0.90 \
+    --rai-ratio 0.05 \
+    --rai-depth 1 \
+    -lr 3e-7
+
+edax-3 92%, edax-4 94%, edax-5 97%, edax-6 96%, edax-7 66%, edax-8 0%, edax-9 20%
+
+
+25. And, yet more edax training
+
+python sb-train.py --mode edax-curriculum \
+    --edax-depths 4,5,6,7,8,9,10 \
+    --edax-ratios 0.1,0.1,0.1,0.1,0.2,0.2,0.2 \
+    --random-ratio 0.0 \
+    --timesteps 2000000 \
+    -m edax_bc_pretrained \
+    --refresh-interval 100000 \
+    -lr 3e-7
+
+edax-3 89%, edax-4 94%, edax-5 97%, edax-6 97%, edax-7 69%, edax-8 0%, edax-9 23%, edax-10 0%

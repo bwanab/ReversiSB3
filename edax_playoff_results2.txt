@@ -1,0 +1,40 @@
+epoch01
+Black wins: 4.0%
+epoch02
+Black wins: 5.0%
+epoch03
+Black wins: 6.0%
+epoch04
+Black wins: 12.0%
+epoch05
+Black wins: 8.0%
+epoch06
+Black wins: 16.0%
+epoch07
+Black wins: 18.0%
+epoch08
+Black wins: 11.0%
+epoch09
+Black wins: 15.0%
+epoch10
+Black wins: 19.0%
+epoch11
+Black wins: 19.0%
+epoch12
+Black wins: 23.0%
+epoch13
+Black wins: 17.0%
+epoch14
+Black wins: 18.0%
+epoch15
+Black wins: 18.0%
+epoch16
+Black wins: 18.0%
+epoch17
+Black wins: 12.0%
+epoch18
+Black wins: 22.0%
+epoch19
+Black wins: 21.0%
+epoch20
+Black wins: 12.0%

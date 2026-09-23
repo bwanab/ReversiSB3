@@ -1,8 +1,37 @@
-    @get "/start/{player_type}/{player_color}" function(req::HTTP.Request, player_type::String, player_color::String)
+    @get "/start/{player_type}/{player_color}"
+
+    player_type :: ["Random", "RAI", "Model": model name, "Human"]
+    player_color :: always black
+
+    returns: json {"uuid": xxx,
+                   "board": [['x', 'o', '_', ...],
+                             [...],
+                             ...
+                   ]
+                   }
+
     @get "/play/{uuid}/{player_color}/{action_string}" function(req::HTTP.Request, uuid, player_color, action_string)
-    @get "/get_action/{uuid}/{board}/{player_color}" function(req::HTTP.Request, uuid, board, player_color)
-    @get "/step/{uuid}/{board}/{action_string}" function (req::HTTP.Request, uuid, board, action_string)
-    @get "/step_play/{uuid}/{board}/{player_color}/{action_string}" function(req::HTTP.Request, uuid, board, player_color, action_string)
-    # @get "/gamelist" function(req::HTTP.Request)
-    # @get "/quitgame/{uuid}" function(req::HTTP.Request, uuid)
-    @get "/get_models" function(req::HTTP.Request)
+
+    uuid :: uuid returned by start
+    player_color :: white or black
+    action_string :: coordinate for move, e.g. "A3"
+
+    returns: same format as start
+
+    @get "/get_action/{uuid}/{board}/{player_color}"
+
+    uuid :: uuid returned by start
+    board :: board concatentated as 64 characters.
+    player_color :: white or black
+
+    returns: json {"uuid": uuid sent in,
+                   "action_string": move for player to make e.g. "A3", if blank returned there is no move
+    }
+
+    TBD later: 
+
+    @get "/step/{uuid}/{board}/{action_string}"
+    @get "/step_play/{uuid}/{board}/{player_color}/{action_string}"
+    @get "/gamelist"
+    @get "/quitgame/{uuid}"
+    @get "/get_models"
