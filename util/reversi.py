@@ -203,7 +203,8 @@ class ReversiEnvCNN(gym.Env):
             pass
         # Here we will first ensure that WHITE has a valid move before proceeding.
         while len(self._all_valid_actions(self.board, WHITE)) > 0:
-            f_act = self.opponent.get_action(self, self.board)
+            # opponents return a scalar or a 1-element array; numpy 2 rejects the latter in is_valid
+            f_act = int(np.asarray(self.opponent.get_action(self, self.board)).item())
             f_act = (0, f_act // 8, f_act % 8)
             next_state, reward, termination, info = self.next_step(self.board, f_act)
             if termination:

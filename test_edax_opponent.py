@@ -6,7 +6,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import numpy as np
-from util.reversi import ReversiEnvCNN
+from util.reversi import ReversiEnvCNN, build_reversi
 from util.opponents import EdaxOpponent, RandomOpponent
 from util.util import BLACK, WHITE
 
@@ -16,8 +16,7 @@ def test_edax_vs_random():
     print("=" * 60)
 
     # Create environment with Edax as opponent
-    import gymnasium as gym
-    env = gym.make("ReversiCNN-v0", opponent="Edax", depth=4)
+    env = build_reversi(opponent="Edax", depth=4)
 
     # Play a few moves to test
     print("\nPlaying game with Edax opponent (depth 4)...\n")
@@ -71,11 +70,11 @@ def test_edax_opening():
     state, _ = env.reset()
     action = edax.get_action(env, state)
 
-    if len(action) == 0:
-        print("ERROR: Edax returned no move for opening position!")
+    action_num = int(action)
+    if action_num not in env.all_valid_actions(state):
+        print(f"ERROR: Edax returned an illegal move ({action_num}) for opening position!")
         return False
 
-    action_num = action[0]
     row = action_num // 8
     col = action_num % 8
     move_str = f"{'abcdefgh'[col]}{row + 1}"

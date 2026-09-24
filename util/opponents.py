@@ -119,7 +119,7 @@ class EdaxOpponent(Opponent):
                    We flip it so opponent (White) sees their pieces as 1
 
         Returns:
-            np.array: Single-element array containing action number (0-63)
+            np.array: 0-d array containing action number (0-63), like the other opponents
         """
         try:
             # Flip board perspective: opponent's pieces become 1
@@ -134,7 +134,7 @@ class EdaxOpponent(Opponent):
                 # Fall back to random valid move
                 return random_action(env, state)
 
-            return np.array([move])
+            return np.array(move)
 
         except Exception as e:
             print(f"WARNING: Edax failed: {e}, using random")

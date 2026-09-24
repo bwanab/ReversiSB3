@@ -69,7 +69,7 @@ def alt_play(env, num_games, black_player: Opponent, white_player: Opponent):
             else:
                 action = white_player.get_action(env, obs)
             
-            obs, score, term, something, info = env.step(action[0])
+            obs, score, term, something, info = env.step(int(action))
             if (score != 0) and (term == False):
                 print("score != and term false!") 
             if term:
