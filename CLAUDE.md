@@ -108,7 +108,11 @@ uv run python bc_train.py --dataset combined_bc_dataset.pkl --model edax_bc_pret
 ```
 `combined_bc_dataset.pkl` (~3.45M samples) is in the project root (git-ignored; original copy in
 `reversisb3_oob/datasets/`), so steps 1-2 only need rerunning to change the data.
-`bc_train.py` also takes `--value-coef` (value-head loss weight, default 0.5) and `-v/--val-split`.
+`bc_train.py` also takes `--value-coef` (value-head loss weight, default 0.5), `-v/--val-split`, and
+`--device` (default `auto`: MPS/CUDA if available, else CPU). On the M4 Max, MPS is ~13x faster than
+CPU for BC (a full-dataset epoch is ~2.3 min vs ~29 min); CPU was only faster on the old M1 with
+torch 2.0, which is why it used to be hard-coded. 2-epoch baseline on the full dataset: val
+accuracy ~46-47% after epoch 1 and ~52-53% after epoch 2 (matches the old machine's run).
 `generate_bc_dataset.py` is the older RAI-based generator.
 
 ### Installing Dependencies

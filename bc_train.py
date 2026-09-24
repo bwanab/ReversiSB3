@@ -113,7 +113,8 @@ def bc_train(
     net_width=512,
     val_split=0.1,
     value_coef=0.5,
-    verbose=True
+    verbose=True,
+    device="auto"
 ):
     """
     Train model using behavioral cloning on RAI dataset.
@@ -227,8 +228,8 @@ def bc_train(
     # Create fresh model
     print("Creating fresh MaskablePPO model...")
     env = ReversiEnvCNN()
-    # device = get_device()
-    device = "cpu"
+    if device == "auto":
+        device = get_device()
 
     # Construct full model path (same format as sb-train.py)
     model_file = f"models/{model_name}_CNN_test"
@@ -457,6 +458,8 @@ def main():
                         help='Value loss coefficient (default: 0.5)')
     parser.add_argument('--verbose', action='store_true',
                         help='Print detailed training info')
+    parser.add_argument('--device', type=str, default='auto', choices=['auto', 'cpu', 'mps', 'cuda'],
+                        help='Training device (default: auto = mps/cuda if available, else cpu)')
 
     args = parser.parse_args()
 
@@ -474,7 +477,8 @@ def main():
         net_width=args.net_width,
         val_split=args.val_split,
         value_coef=args.value_coef,
-        verbose=args.verbose
+        verbose=args.verbose,
+        device=args.device
     )
 
 
