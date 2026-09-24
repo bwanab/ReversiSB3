@@ -15,6 +15,7 @@ dependencies = [
     "reversi-python-ai",
     "sb3-contrib>=2.9.0",
     "stable-baselines3>=2.9.0",
+    "tensorboard>=2.21.0",
     "torch>=2.14.0",
     "tqdm>=4.70.1",
 ]
@@ -28,3 +29,9 @@ build-backend = "uv_build"
 
 [tool.uv.sources]
 reversi-python-ai = { git = "https://github.com/bwanab/reversi_python_ai.git", rev = "main" }
+
+[dependency-groups]
+dev = [
+    "ipykernel>=7.3.0",
+    "matplotlib>=3.11.2",
+]
