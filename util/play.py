@@ -1,5 +1,4 @@
 from util.util import get_move_db, render, get_action, mask_fn, get_move_notation, count_players
-from util.opponents import Opponent
 import numpy as np
 import torch
 
@@ -54,28 +53,5 @@ def play(model, num_games, opponent, deterministic, verbose):
                     for m, desc in move_db:
                         if m == moves_str[:len(m)]:
                             print(m, desc)
-                black_wins += black_score > white_score
-    return black_wins
-
-def alt_play(env, num_games, black_player: Opponent, white_player: Opponent):
-    black_wins = 0
-    for i in range(num_games):
-        term = False
-        obs = env.reset()[0]
-        while not term:
-            player = env.player
-            if player == 1:
-                action = black_player.get_action(env, obs)
-            else:
-                action = white_player.get_action(env, obs)
-            
-            obs, score, term, something, info = env.step(int(action))
-            if (score != 0) and (term == False):
-                print("score != and term false!") 
-            if term:
-                # term_obs = info[0]['terminal_observation']
-                term_obs = obs
-                black_score = sum(term_obs == 1)
-                white_score = sum(term_obs == -1)
                 black_wins += black_score > white_score
     return black_wins

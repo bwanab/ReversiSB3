@@ -403,3 +403,34 @@ Env behaviors worth knowing when writing tests:
 
 An earlier version of this file listed "critical" env bugs (missing `is_game_over`/`_place`,
 bad masking, wrong initial moves). Those were bugs in the tests, not the env, and have been fixed.
+
+## Deferred Work
+
+### Opponent-vs-opponent play (not currently needed)
+
+There is no tool for pitting two arbitrary opponents against each other (e.g. Random vs RAI,
+RAI vs Edax, or a model playing WHITE). `sb-play.py` only covers *model (as BLACK) vs opponent*.
+
+**History:** `util/play.py` had an `alt_play(env, num_games, black_player, white_player)` for this,
+written in April 2024 (`e13dae2`) against boardgame2's `Reversi-v0`, whose `step()` played one move
+for whichever side was to move. It broke when the project moved to `ReversiEnvCNN`, whose `step()`
+is a two-ply SB3 training function (BLACK's move + the env's built-in opponent), so `white_player`
+was never consulted and results were counted on the already-reset board. It was removed as dead code.
+
+**To implement:** write a helper, e.g. `play_opponents(black, white, num_games) -> (black_wins,
+white_wins, draws)` in `util/play.py`, modeled on the game loop in `generate_bc_dataset.py`
+(see commit `a02f34e`):
+- Don't use `env.step()`. Drive the game with `env.has_valid(state, player)` (pass handling:
+  if the side to move has no move, switch; if neither does, the game is over),
+  `env.get_next_state(state, (0, a // 8, a % 8))`, and `env.get_winner(state)`.
+- Set `env.player = current_player` before each `get_action()` call: `RandomOpponent` and
+  `RAIOpponent` read `env.player`, not their own `player`.
+- Set each opponent's `.player` to its color (`BLACK` = 1 / `WHITE` = -1). `Opponent.player`
+  defaults to -1, and `ModelOpponent` and `EdaxOpponent` flip the board by `self.player`, so a
+  BLACK-side model/Edax left at the default would see an inverted board.
+- `get_opponent()` caches `ModelOpponent`s per model file (`opponent_map`), so the same model on
+  both sides would share one object and one `.player`; construct `ModelOpponent` directly for
+  self-play matchups. A model under test is wrapped the same way:
+  `ModelOpponent(opponent_model="models/<name>", env=env)`.
+- `get_action()` returns a 0-d array; convert with `int(action)`.
+- Alternate colors across games (as the BC generators do) so results aren't biased toward BLACK.
