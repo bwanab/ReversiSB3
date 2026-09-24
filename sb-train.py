@@ -11,7 +11,7 @@ from time import time
 import torch
 from sb3_contrib.common.wrappers import ActionMasker
 
-from stable_baselines3.common.logger import Logger, TensorBoardOutputFormat, configure
+from stable_baselines3.common.logger import configure
 from stable_baselines3.common.callbacks import BaseCallback, EveryNTimesteps, CheckpointCallback
 
 # Setup device
@@ -71,7 +71,8 @@ class PlayCallback(BaseCallback):
         self.opponent = opponent
         self.model = model
         self.file = file
-        self.logger = Logger("./" + file + ".log", TensorBoardOutputFormat("./" + file + ".log"))
+        # self.logger is BaseCallback's read-only property (the model's logger), so black_wins
+        # lands in the run's TensorBoard log alongside the PPO stats
         super(PlayCallback, self).__init__(verbose)
 
     def _on_step(self) -> bool:
