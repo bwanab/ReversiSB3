@@ -25,13 +25,15 @@ class Human(Opponent):
         render(state)
         for (score, y, x) in get_scores(env, state):
             print(f"{'abcdefgh'[x]}{y+1}: {score}")
+        valid = env.all_valid_actions(state)
         while True:
-            t = input()
-            x = "abcdefgh".find(t[0])
-            if x >= 0:
-                y = int(t[1]) - 1
-                if 0 <= y < 8:
-                    return np.array([np.ravel_multi_index([y,x], (8,8))])
+            t = input().strip().lower()
+            if len(t) == 2 and t[0] in "abcdefgh" and t[1] in "12345678":
+                action = np.ravel_multi_index([int(t[1]) - 1, "abcdefgh".find(t[0])], (8,8))
+                # an illegal move would be treated as a resignation, so re-prompt instead
+                if action in valid:
+                    return np.array(action)
+            print("Enter a legal move, e.g. d3")
 
 class ModelOpponent(Opponent):
     def __init__(self, **kwargs):

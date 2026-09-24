@@ -176,8 +176,11 @@ def get_action(model: MaskablePPO, obs, mask, deterministic=False, verbose=False
     action, _ = model.predict(obs, action_masks=mask, deterministic=deterministic)
     if verbose:
         actions = np.where(mask > 0)[0]
-        evals = model.policy.evaluate_actions(th.Tensor(np.reshape(obs, (1, *obs.shape))), th.Tensor(actions))
-        return action, evals[1], actions
+        # tensors must be on the model's device (e.g. mps), results come back to cpu for numpy
+        obs_t = th.as_tensor(np.reshape(obs, (1, *obs.shape)), dtype=th.float32, device=model.device)
+        actions_t = th.as_tensor(actions, dtype=th.float32, device=model.device)
+        evals = model.policy.evaluate_actions(obs_t, actions_t)
+        return action, evals[1].cpu(), actions
     else:
         return action, None, None
 
