@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Focused tests to isolate specific environment issues that could cause training problems.
-These tests target the exact issues mentioned in CLAUDE.md to reduce search space.
+Focused tests of core environment behavior that RL training depends on:
+game-over detection, move execution, masking, termination, and rewards.
 """
 
 import unittest
@@ -19,54 +19,33 @@ from util.reversi import build_reversi
 
 
 class TestCriticalEnvironmentIssues(unittest.TestCase):
-    """
-    Focused tests to identify the exact causes of training plateau.
-    Based on issues identified in CLAUDE.md test analysis.
-    """
+    """Core environment behaviors that training depends on."""
     
     def setUp(self):
         self.env = ReversiEnvCNN(opponent="Random", verbose=False)
         
-    def test_missing_is_game_over_method(self):
-        """Test 1: Verify is_game_over method exists and works correctly."""
-        # Check method exists
-        self.assertTrue(hasattr(self.env, 'is_game_over'), 
-                       "CRITICAL: is_game_over method missing from ReversiEnvCNN")
+    def test_game_over_detection(self):
+        """Test 1: get_winner() returns None while the game is in progress, a result when over."""
+        # Initial position: both sides can move, so the game is not over
+        board, _ = self.env.reset()
+        self.assertIsNone(self.env.get_winner(board), "Initial position should not be game over")
         
-        # Test with empty board (should not be game over)
-        empty_board = np.zeros((1, 8, 8), dtype=np.int8)
-        try:
-            result = self.env.is_game_over(empty_board)
-            self.assertFalse(result, "Empty board should not be game over")
-        except Exception as e:
-            self.fail(f"is_game_over failed on empty board: {e}")
-            
-        # Test with full board (should be game over)  
+        # Full board: nobody can move, so the game is over and BLACK wins
         full_board = np.ones((1, 8, 8), dtype=np.int8)
-        try:
-            result = self.env.is_game_over(full_board)
-            self.assertTrue(result, "Full board should be game over")
-        except Exception as e:
-            self.fail(f"is_game_over failed on full board: {e}")
+        self.assertEqual(self.env.get_winner(full_board), BLACK, "Full BLACK board should be over, BLACK wins")
             
-    def test_missing_place_method(self):
-        """Test 2: Verify _place method exists and works correctly."""
-        # Check method exists
-        self.assertTrue(hasattr(self.env, '_place'), 
-                       "CRITICAL: _place method missing from ReversiEnvCNN")
-        
-        # Test basic piece placement and capture
+    def test_piece_placement(self):
+        """Test 2: get_next_state() places a piece and captures correctly."""
         test_board = np.zeros((1, 8, 8), dtype=np.int8)
         test_board[0, 3, 3] = WHITE
         test_board[0, 3, 4] = BLACK
         
-        try:
-            # Place BLACK at (3,2) should capture WHITE at (3,3)
-            result_board = self.env._place(test_board, BLACK, np.array([0, 3, 2]))
-            self.assertEqual(result_board[0, 3, 2], BLACK, "New piece should be placed")
-            self.assertEqual(result_board[0, 3, 3], BLACK, "WHITE piece should be captured")
-        except Exception as e:
-            self.fail(f"_place method failed: {e}")
+        # Place BLACK at (3,2) should capture WHITE at (3,3); get_next_state plays for env.player
+        self.env.player = BLACK
+        result_board = self.env.get_next_state(test_board, np.array([0, 3, 2]))
+        self.assertEqual(result_board[0, 3, 2], BLACK, "New piece should be placed")
+        self.assertEqual(result_board[0, 3, 3], BLACK, "WHITE piece should be captured")
+        self.assertEqual(self.env.player, WHITE, "get_next_state should pass the turn to WHITE")
             
     def test_action_masking_data_types(self):
         """Test 3: Verify action masks return proper boolean types."""
@@ -131,20 +110,14 @@ class TestCriticalEnvironmentIssues(unittest.TestCase):
         winning_board = np.zeros((1, 8, 8), dtype=np.int8)
         winning_board[0, :4, :] = BLACK  # Black has 32 squares
         winning_board[0, 4:, :] = WHITE  # White has 32 squares
-        winning_board[0, 0, 0] = BLACK   # Give Black one extra
+        winning_board[0, 4, 0] = BLACK   # Give Black one extra (33-31)
         
         self.env.board = winning_board
         
-        try:
-            if hasattr(self.env, 'get_winner'):
-                winner = self.env.get_winner(winning_board)
-                black_count = np.sum(winning_board == BLACK)
-                white_count = np.sum(winning_board == WHITE)
-                expected_winner = BLACK if black_count > white_count else WHITE
-                self.assertEqual(winner, expected_winner, 
-                               f"Winner calculation incorrect. BLACK: {black_count}, WHITE: {white_count}")
-        except Exception as e:
-            self.fail(f"Reward/winner calculation failed: {e}")
+        # Full board, so the game is over and the side with more pieces wins
+        self.assertEqual(self.env.get_winner(winning_board), BLACK,
+                         f"Winner calculation incorrect. BLACK: {np.sum(winning_board == BLACK)}, "
+                         f"WHITE: {np.sum(winning_board == WHITE)}")
             
     def test_environment_reset_consistency(self):
         """Test 7: Verify reset() always produces identical initial states."""

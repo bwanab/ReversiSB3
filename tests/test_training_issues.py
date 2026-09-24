@@ -22,54 +22,29 @@ class TestTrainingIssues(unittest.TestCase):
         self.env = ReversiEnvCNN(opponent="Random", verbose=False)
     
     def test_reward_signal_correlation(self):
-        """Test if rewards correlate with actual game outcomes."""
-        
-        # Play multiple games and track outcomes vs rewards
-        outcomes = []
-        final_rewards = []
-        
+        """Test that the final reward always matches the actual game outcome."""
         for game in range(20):
             obs, _ = self.env.reset()
-            game_reward = 0
+            done = False
+            moves = 0
             
-            # Play game to completion
-            for move in range(100):  # Safety limit
+            # Play game to completion; step() handles passes, so BLACK always has a move
+            while not done and moves < 100:
                 valid_actions = self.env.all_valid_actions(obs)
-                
-                if len(valid_actions) == 0:
-                    if self.env.is_game_over(obs):
-                        break
-                else:
-                    action = np.random.choice(valid_actions)
-                    obs, reward, done, truncated, info = self.env.step(action)
-                    game_reward = reward  # Track final reward
-                    
-                    if done:
-                        break
+                obs, reward, done, truncated, info = self.env.step(np.random.choice(valid_actions))
+                moves += 1
+            self.assertTrue(done, "Game should finish within 100 BLACK moves")
             
-            # Determine actual outcome by counting pieces
-            if self.env.is_game_over(obs):
-                black_count = np.sum(obs == BLACK)
-                white_count = np.sum(obs == WHITE)
-                
-                if black_count > white_count:
-                    actual_outcome = 1  # BLACK wins
-                elif white_count > black_count:
-                    actual_outcome = -1  # WHITE wins  
-                else:
-                    actual_outcome = 0  # Draw
-                
-                outcomes.append(actual_outcome)
-                final_rewards.append(game_reward)
-        
-        if len(outcomes) > 5:  # Need enough data
-            # Check correlation between actual outcomes and rewards
-            correlation = np.corrcoef(outcomes, final_rewards)[0, 1]
+            # step() resets the board on game end; score the final position from info
+            final_board = info['terminal_observation']
+            black_count = np.sum(final_board == BLACK)
+            white_count = np.sum(final_board == WHITE)
+            actual_outcome = int(np.sign(black_count - white_count))  # 1 BLACK win, -1 WHITE win, 0 draw
             
-            if not np.isnan(correlation):
-                self.assertGreater(abs(correlation), 0.5, 
-                                 f"Reward correlation with outcomes too low: {correlation}. "
-                                 f"This could explain low explained variance!")
+            self.assertEqual(reward, actual_outcome,
+                             f"Game {game}: final reward {reward} doesn't match outcome "
+                             f"(BLACK {black_count}, WHITE {white_count}). "
+                             f"This could explain low explained variance!")
     
     def test_value_function_consistency(self):
         """Test if value estimates are consistent across similar positions."""
@@ -207,53 +182,24 @@ class TestTrainingIssues(unittest.TestCase):
                                "Move count progression seems unusual - might indicate game logic bug")
     
     def test_reward_sparsity_issues(self):
-        """Test if reward sparsity is causing training difficulties."""
-        
-        # Play games and analyze reward structure
+        """Test that rewards are sparse by design: non-zero only on the game-ending step."""
         all_rewards = []
-        reward_positions = []
         
         for game in range(15):
             obs, _ = self.env.reset()
-            game_rewards = []
-            position_count = 0
+            done = False
             
-            for move in range(100):
+            while not done:
                 valid_actions = self.env.all_valid_actions(obs)
+                obs, reward, done, truncated, info = self.env.step(np.random.choice(valid_actions))
+                all_rewards.append(reward)
                 
-                if len(valid_actions) == 0:
-                    if self.env.is_game_over(obs):
-                        break
-                else:
-                    action = np.random.choice(valid_actions)
-                    obs, reward, done, truncated, info = self.env.step(action)
-                    
-                    game_rewards.append(reward)
-                    if reward != 0:
-                        reward_positions.append(position_count)
-                    
-                    position_count += 1
-                    
-                    if done:
-                        break
-            
-            all_rewards.extend(game_rewards)
+                if not done:
+                    self.assertEqual(reward, 0, "Intermediate (non-terminal) steps should have zero reward")
         
-        if len(all_rewards) > 20:
-            # Analyze reward sparsity
-            non_zero_rewards = [r for r in all_rewards if r != 0]
-            sparsity = 1 - (len(non_zero_rewards) / len(all_rewards))
-            
-            # Very sparse rewards (>95%) might hurt learning
-            if sparsity > 0.95:
-                print(f"WARNING: Very sparse rewards ({sparsity:.2%}). Consider reward shaping.")
-            
-            # Check if non-zero rewards are only at game end
-            if len(reward_positions) > 0 and len(all_rewards) > 0:
-                avg_reward_position = np.mean(reward_positions) / len(all_rewards) 
-                
-                if avg_reward_position > 0.9:  # Rewards only in last 10% of game
-                    self.fail("Rewards only appear at game end - this could explain training difficulties!")
+        # Informational: the fraction of zero-reward steps (reward shaping would lower this)
+        sparsity = sum(1 for r in all_rewards if r == 0) / len(all_rewards)
+        self.assertGreater(sparsity, 0.9, "Expected sparse, end-of-game-only rewards")
     
     def test_action_space_utilization(self):
         """Test if the action space is being utilized effectively."""
@@ -266,22 +212,18 @@ class TestTrainingIssues(unittest.TestCase):
             obs, _ = self.env.reset()
             
             for move in range(50):
+                # step() handles passes, so BLACK always has a move until the game ends
                 valid_actions = self.env.all_valid_actions(obs)
+                for action in valid_actions:
+                    action_counts[action] += 1
+                total_actions += len(valid_actions)
                 
-                if len(valid_actions) == 0:
-                    if self.env.is_game_over(obs):
-                        break
-                else:
-                    for action in valid_actions:
-                        action_counts[action] += 1
-                    total_actions += len(valid_actions)
-                    
-                    # Make random move
-                    chosen_action = np.random.choice(valid_actions)
-                    obs, reward, done, truncated, info = self.env.step(chosen_action)
-                    
-                    if done:
-                        break
+                # Make random move
+                chosen_action = np.random.choice(valid_actions)
+                obs, reward, done, truncated, info = self.env.step(chosen_action)
+                
+                if done:
+                    break
         
         if total_actions > 0:
             # Check action distribution

@@ -20,6 +20,11 @@ def run_all_tests():
     from test_training_components import TestTrainingComponents, TestEnvironmentIntegration
     from test_bc_system import (TestBCDatasetGeneration, TestBCTraining,
                                  TestBCDatasetClass, TestBCIntegration)
+    from test_focused_issues import (TestCriticalEnvironmentIssues, TestGameLogicIntegrity,
+                                     TestTrainingCriticalFeatures)
+    from test_training_issues import TestTrainingIssues
+    from test_step_logic import TestStepFunctionTurnLogic, TestSelfPlayLogic, TestStepFunctionEdgeCases
+    from test_lr_update import TestLearningRateUpdates
     
     # Create test suite
     test_classes = [
@@ -31,7 +36,15 @@ def run_all_tests():
         TestBCDatasetGeneration,
         TestBCTraining,
         TestBCDatasetClass,
-        TestBCIntegration
+        TestBCIntegration,
+        TestCriticalEnvironmentIssues,
+        TestGameLogicIntegrity,
+        TestTrainingCriticalFeatures,
+        TestTrainingIssues,
+        TestStepFunctionTurnLogic,
+        TestSelfPlayLogic,
+        TestStepFunctionEdgeCases,
+        TestLearningRateUpdates
     ]
     
     suite = unittest.TestSuite()
@@ -90,7 +103,11 @@ def run_specific_test(test_name):
         'bc_training': 'test_bc_system.TestBCTraining',
         'bc_dataset_class': 'test_bc_system.TestBCDatasetClass',
         'bc_integration': 'test_bc_system.TestBCIntegration',
-        'bc': 'test_bc_system'  # Run all BC tests
+        'bc': 'test_bc_system',  # Run all BC tests
+        'focused': 'test_focused_issues',
+        'training_issues': 'test_training_issues',
+        'step': 'test_step_logic',
+        'lr': 'test_lr_update',
     }
     
     if test_name in test_map:
