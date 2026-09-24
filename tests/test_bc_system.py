@@ -295,19 +295,25 @@ class TestBCDatasetClass(unittest.TestCase):
 
     def test_dataset_getitem(self):
         """Test dataset item retrieval."""
-        state, action = self.bc_dataset[0]
+        state, action, outcome = self.bc_dataset[0]
 
         # Check types
         self.assertIsInstance(state, torch.Tensor)
         self.assertIsInstance(action, torch.Tensor)
+        self.assertIsInstance(outcome, torch.Tensor)
 
         # Check shapes
         self.assertEqual(state.shape, (1, 8, 8))
         self.assertEqual(action.shape, (1,))
+        self.assertEqual(outcome.shape, (1,))
 
         # Check dtypes
         self.assertEqual(state.dtype, torch.float32)
         self.assertEqual(action.dtype, torch.int64)
+        self.assertEqual(outcome.dtype, torch.float32)
+
+        # Sample data has no 'outcome' key, so it defaults to 0
+        self.assertEqual(outcome.item(), 0.0)
 
 
 class TestBCIntegration(unittest.TestCase):

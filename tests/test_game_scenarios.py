@@ -22,35 +22,26 @@ class TestGameScenarios(unittest.TestCase):
         
         game_length = 0
         max_moves = 100  # Safety limit
+        done = False
         
-        while game_length < max_moves:
+        while not done and game_length < max_moves:
+            # step() handles passes itself, so BLACK is only ever handed a
+            # position where it has a legal move
             valid_actions = self.env.all_valid_actions(obs)
+            self.assertGreater(len(valid_actions), 0, "BLACK should always have a move when the game isn't over")
             
-            if len(valid_actions) == 0:
-                # No valid moves - should pass or end game
-                if self.env.is_game_over(obs):
-                    break
-                else:
-                    # Handle pass scenario
-                    obs, reward, done, truncated, info = self.env.step(self.env.PASS[1] * 8 + self.env.PASS[2])
-                    if done:
-                        break
-            else:
-                # Make a random valid move
-                action = np.random.choice(valid_actions)
-                obs, reward, done, truncated, info = self.env.step(action)
-                if done:
-                    break
-            
+            action = np.random.choice(valid_actions)
+            obs, reward, done, truncated, info = self.env.step(action)
             game_length += 1
         
         # Game should have ended naturally within reasonable moves
-        self.assertLess(game_length, max_moves, "Game should end within reasonable time")
+        self.assertTrue(done, "Game should end within reasonable time")
         
-        # Final board should have a clear winner or be a draw
-        if self.env.is_game_over(obs):
-            winner = self.env.get_winner(obs)
-            self.assertIn(winner, [BLACK, WHITE, 0], "Winner should be BLACK, WHITE, or 0 (draw)")
+        # step() resets the board on game end; the final position is in info
+        final_board = info['terminal_observation']
+        winner = self.env.get_winner(final_board)
+        self.assertIn(winner, [BLACK, WHITE, 0], "Winner should be BLACK, WHITE, or 0 (draw)")
+        self.assertEqual(reward, winner, "Final reward should equal the winner")
     
     def test_pass_scenarios(self):
         """Test scenarios where players must pass."""
@@ -85,7 +76,7 @@ class TestGameScenarios(unittest.TestCase):
         self.env.board = board
         
         # Check if game is over
-        game_over = self.env.is_game_over(board)
+        game_over = self.env.get_winner(board) is not None
         
         # At minimum, check that we can detect when board is full
         if np.all(board != EMPTY):
@@ -115,9 +106,7 @@ class TestGameScenarios(unittest.TestCase):
         
         self.env.board = winning_board
         
-        if self.env.is_game_over(winning_board):
-            winner = self.env.get_winner(winning_board)
-            self.assertEqual(winner, BLACK, "BLACK should win when controlling full board")
+        self.assertEqual(self.env.get_winner(winning_board), BLACK, "BLACK should win when controlling full board")
         
         # Test losing scenario  
         losing_board = np.zeros((1, 8, 8), dtype=np.int8)
@@ -125,9 +114,7 @@ class TestGameScenarios(unittest.TestCase):
         
         self.env.board = losing_board
         
-        if self.env.is_game_over(losing_board):
-            winner = self.env.get_winner(losing_board)
-            self.assertEqual(winner, WHITE, "WHITE should win when controlling full board")
+        self.assertEqual(self.env.get_winner(losing_board), WHITE, "WHITE should win when controlling full board")
     
     def test_opponent_move_integration(self):
         """Test that opponent moves are integrated correctly."""
@@ -218,7 +205,7 @@ class TestEdgeCaseScenarios(unittest.TestCase):
         
         # If neither player has moves, game should end
         if not black_has_moves and not white_has_moves:
-            self.assertTrue(self.env.is_game_over(board), 
+            self.assertIsNotNone(self.env.get_winner(board), 
                            "Game should end when neither player can move")
     
     def test_board_state_consistency(self):

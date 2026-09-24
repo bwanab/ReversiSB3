@@ -50,8 +50,8 @@ class TestReversiEnvironment(unittest.TestCase):
         # Get valid moves for BLACK (first player)
         valid_actions = self.env.all_valid_actions(board)
         
-        # Initial valid moves for black should be: c4(19), d3(26), e6(45), f5(53)
-        expected_moves = [19, 26, 45, 53]  # Converting to flat indices
+        # Initial valid moves for black (flat index = row * 8 + col): d3(19), c4(26), f5(37), e6(44)
+        expected_moves = [19, 26, 37, 44]
         
         self.assertEqual(len(valid_actions), 4, f"Expected 4 valid moves, got {len(valid_actions)}")
         
@@ -93,8 +93,8 @@ class TestReversiEnvironment(unittest.TestCase):
         self.env.board = test_board
         self.env.player = BLACK
         
-        # Move to c4 should capture d4
-        result_board = self.env._place(test_board, BLACK, np.array([0, 3, 2]))
+        # Move to c4 should capture d4 and e4 (get_next_state plays for env.player)
+        result_board = self.env.get_next_state(test_board, np.array([0, 3, 2]))
         
         # Check that the capture happened
         self.assertEqual(result_board[0, 3, 2], BLACK)  # New piece placed
@@ -106,18 +106,22 @@ class TestReversiEnvironment(unittest.TestCase):
         """Test various game ending conditions."""
         self.env.reset()
         
-        # Test game ending when board is full
+        # Board is full except one square, and BLACK can still play there
+        # (a0 empty, b0 WHITE, c0 BLACK -> BLACK at a0 captures b0)
         full_board = np.ones((1, 8, 8), dtype=np.int8)
-        full_board[0, 0, 0] = EMPTY  # Leave one empty space
+        full_board[0, 0, 0] = EMPTY
+        full_board[0, 0, 1] = WHITE
         
         self.env.board = full_board
         
-        # Check that game doesn't end yet
-        self.assertFalse(self.env.is_game_over(full_board))
+        # get_winner returns None while the game is still in progress
+        self.assertIsNone(self.env.get_winner(full_board))
         
         # Fill the last space
-        full_board[0, 0, 0] = BLACK
-        self.assertTrue(self.env.is_game_over(full_board))
+        self.env.player = BLACK
+        full_board = self.env.get_next_state(full_board, np.array([0, 0, 0]))
+        self.assertTrue(np.all(full_board != EMPTY))
+        self.assertEqual(self.env.get_winner(full_board), BLACK)
     
     def test_no_valid_moves_scenario(self):
         """Test behavior when a player has no valid moves."""
@@ -155,15 +159,12 @@ class TestReversiEnvironment(unittest.TestCase):
         winning_board = np.zeros((1, 8, 8), dtype=np.int8)
         winning_board[0, :4, :4] = BLACK  # Black controls 16 squares
         winning_board[0, 4:, 4:] = WHITE  # White controls 16 squares
-        winning_board[0, 0, 0] = BLACK    # Give black one extra piece
+        winning_board[0, 7, 0] = BLACK    # Give black one extra piece
         
         self.env.board = winning_board
         
-        # Check game over detection and winner
-        if self.env.is_game_over(winning_board):
-            winner = self.env.get_winner(winning_board)
-            expected_winner = BLACK if np.sum(winning_board == BLACK) > np.sum(winning_board == WHITE) else WHITE
-            self.assertEqual(winner, expected_winner)
+        # Neither side can move, so the game is over and BLACK wins 17-16
+        self.assertEqual(self.env.get_winner(winning_board), BLACK)
     
     def test_observation_space(self):
         """Test observation space properties."""
@@ -191,7 +192,7 @@ class TestReversiEnvironment(unittest.TestCase):
         self.assertTrue(all(isinstance(x, (bool, np.bool_)) for x in action_mask))
         
         # Check that exactly the valid actions are unmasked
-        valid_actions = self.masked_env.envs[0].all_valid_actions(obs)
+        valid_actions = self.masked_env.unwrapped.all_valid_actions(obs)
         
         for i in range(64):
             if i in valid_actions:

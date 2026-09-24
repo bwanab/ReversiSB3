@@ -24,7 +24,7 @@ class TestTrainingComponents(unittest.TestCase):
         
         for _ in range(20):  # Test multiple states
             # Get valid actions from environment
-            env = self.masked_env.envs[0]
+            env = self.masked_env.unwrapped
             true_valid_actions = set(env.all_valid_actions(obs))
             
             # Get action mask
@@ -52,25 +52,13 @@ class TestTrainingComponents(unittest.TestCase):
         move_count = 0
         
         # Play a complete game and collect rewards
-        while move_count < 100:  # Safety limit
+        done = False
+        while not done and move_count < 100:  # Safety limit
+            # step() handles passes itself, so BLACK always has a legal move here
             valid_actions = self.env.all_valid_actions(obs)
-            
-            if len(valid_actions) == 0:
-                if self.env.is_game_over(obs):
-                    break
-                else:
-                    # Pass situation
-                    obs, reward, done, truncated, info = self.env.step(64)  # Pass action
-                    game_rewards.append(reward)
-                    if done:
-                        break
-            else:
-                action = np.random.choice(valid_actions)
-                obs, reward, done, truncated, info = self.env.step(action)
-                game_rewards.append(reward)
-                if done:
-                    break
-            
+            action = np.random.choice(valid_actions)
+            obs, reward, done, truncated, info = self.env.step(action)
+            game_rewards.append(reward)
             move_count += 1
         
         # Analyze reward structure
@@ -115,21 +103,16 @@ class TestTrainingComponents(unittest.TestCase):
         while step_count < max_steps:
             valid_actions = self.env.all_valid_actions(obs)
             
-            if len(valid_actions) == 0:
-                # Should either be game over or pass situation
-                if self.env.is_game_over(obs):
-                    break
-                # Handle pass (this might vary based on implementation)
-            else:
-                action = np.random.choice(valid_actions)
-                obs, reward, done, truncated, info = self.env.step(action)
-                
-                if done:
-                    # Episode ended - verify it's a valid end state
-                    self.assertTrue(self.env.is_game_over(obs) or 
-                                   len(valid_actions) == 0,
-                                   "Episode should only end at valid terminal states")
-                    break
+            # step() handles passes itself, so BLACK always has a legal move here
+            self.assertGreater(len(valid_actions), 0, "BLACK should always have a move when the game isn't over")
+            action = np.random.choice(valid_actions)
+            obs, reward, done, truncated, info = self.env.step(action)
+            
+            if done:
+                # Episode ended - the final position (obs is already reset) must be terminal
+                self.assertIsNotNone(self.env.get_winner(info['terminal_observation']),
+                                     "Episode should only end at valid terminal states")
+                break
             
             step_count += 1
         
@@ -199,18 +182,14 @@ class TestTrainingComponents(unittest.TestCase):
             while game_length < 100:  # Game length limit
                 valid_actions = self.env.all_valid_actions(obs)
                 
-                if len(valid_actions) == 0:
-                    if self.env.is_game_over(obs):
-                        break
-                else:
-                    action = np.random.choice(valid_actions)
-                    action_distribution[action] += 1
-                    
-                    obs, reward, done, truncated, info = self.env.step(action)
-                    game_rewards.append(reward)
-                    
-                    if done:
-                        break
+                action = np.random.choice(valid_actions)
+                action_distribution[action] += 1
+                
+                obs, reward, done, truncated, info = self.env.step(action)
+                game_rewards.append(reward)
+                
+                if done:
+                    break
                 
                 game_length += 1
             

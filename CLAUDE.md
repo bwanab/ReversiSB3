@@ -97,17 +97,26 @@ Options:
 - `-v/--val-split`: Validation split fraction (default: 0.1)
 
 ### Installing Dependencies
+The project uses [uv](https://docs.astral.sh/uv/); dependencies are declared in `pyproject.toml` and pinned in `uv.lock`.
 ```bash
-pip install -r requirements.txt
+uv sync                      # create/update .venv from uv.lock
+uv run python sb-train.py …  # run a script inside .venv
+uv add <package>             # add a dependency
 ```
 
 ### Development Setup
-The project uses a virtual environment in `venv-sb/`. Key dependencies:
-- `stable-baselines3==2.0.0`
-- `sb3-contrib==2.0.0` 
-- `torch==2.0.1`
-- `gymnasium==0.28.1`
-- Custom reversi packages installed from git
+uv manages the virtual environment in `.venv/` (Python 3.14). Key dependencies:
+- `stable-baselines3>=2.9.0`
+- `sb3-contrib>=2.9.0`
+- `torch>=2.14.0`
+- `gymnasium>=1.3.0`
+- `reversi-python-ai` installed from git
+
+**gymnasium >= 1.0 note:** wrappers no longer forward custom attributes (`board`, `player`,
+`get_valid`, `set_opponent`, ...) to the underlying env. `build_reversi()` therefore returns the
+unwrapped `ReversiEnvCNN`, and code holding a wrapped env (e.g. `ActionMasker`, SB3's `Monitor`)
+must go through `env.unwrapped`. Assigning attributes on a wrapper (`env.board = ...`) silently
+sets them on the wrapper, not the real env.
 
 ## Project Structure
 
@@ -352,7 +361,7 @@ Test both approaches:
 - `generate_bc_dataset.py`: BC dataset generation (RAI vs Model/Random)
 - `bc_train.py`: BC training script (supervised learning)
 - `tests/test_bc_system.py`: BC system tests
-- Run tests: `PYTHONPATH=/Users/bill/src/ReversiSB3 python tests/run_tests.py bc`
+- Run tests: `./run_tests.sh bc`
 
 ### Priority
 
@@ -372,41 +381,25 @@ The training system automatically detects and uses:
 
 Device selection is handled in `sb-train.py` and passed to model creation.
 
-## Critical Issues Found
+## Testing
 
-### Test Environment Setup
-- Tests must be run with: `PYTHONPATH=/Users/bill/src/ReversiSB3 python tests/run_tests.py`
-- Alternative: Use `./run_tests.sh` script
+Run the suite with `./run_tests.sh` (all tests) or `./run_tests.sh <name>` for one group
+(`environment`, `scenarios`, `edge_cases`, `training`, `integration`, `bc`, ...). The script sets
+`PYTHONPATH` to the project root and runs through `uv run`.
 
-### ReversiEnvCNN Implementation Issues (Found via test suite)
-The following critical methods are missing from `ReversiEnvCNN` in `util/reversi.py`:
+`tests/run_tests.py` runs `test_reversi_environment`, `test_game_scenarios`,
+`test_training_components` and `test_bc_system` (49 tests, all passing).
+`test_focused_issues.py`, `test_training_issues.py`, `test_step_logic.py` and `test_lr_update.py`
+are not part of the runner.
 
-1. **`is_game_over(board)` method** - Required for game termination detection
-   - Used by training logic to determine episode end
-   - Missing causes 7 test failures
+Env behaviors worth knowing when writing tests:
+- Game over is `env.get_winner(board) is not None` (there is no `is_game_over`).
+- To play a move directly, set `env.player` then call `env.get_next_state(board, (0, row, col))`;
+  it mutates `board` in place and flips `env.player`.
+- `step()` handles passes internally, so BLACK is only handed positions with a legal move.
+- On game end `step()` resets the board, so the returned `obs` is the new starting position; the
+  final position is in `info['terminal_observation']`.
+- Flat action index = `row * 8 + col`; BLACK's opening moves are 19, 26, 37, 44.
 
-2. **`_place(board, player, position)` method** - Required for piece placement
-   - Used for move execution and piece capture mechanics
-   - Missing causes piece capture test failures
-
-3. **Action masking data type issue** - Returns wrong types instead of booleans
-   - Should return boolean array for valid/invalid moves
-   - Corrupts action space for RL training
-
-4. **Valid move detection bug** - Incorrect initial board move validation
-   - Move 27 should be valid on initial board but isn't detected
-   - Indicates potential issues with move validation logic
-
-### Impact on Training
-These bugs likely explain training plateau because:
-- Game termination detection broken → poor end-game learning
-- Action masking corrupted → invalid action space feedback  
-- Move validation errors → wrong legal move feedback
-- Missing core methods → incomplete game mechanics
-
-### Test Results Summary
-- 34 tests run, 11 failures/errors (67.6% success rate)
-- Primary issues in `ReversiEnvCNN` class implementation
-- Tests identify specific methods and logic that need fixing
-
-**Priority**: Fix these core environment issues before continuing training optimization.
+An earlier version of this file listed "critical" env bugs (missing `is_game_over`/`_place`,
+bad masking, wrong initial moves). Those were bugs in the tests, not the env, and have been fixed.

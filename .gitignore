@@ -17,3 +17,8 @@ models/**
 .ipynb_checkpoints/
 
 
+
+# out-of-band bundle (models, datasets, Edax binaries) copied from the old machine
+reversisb3_oob/
+# CSV artifacts written by the BC tests
+test_*_training.csv

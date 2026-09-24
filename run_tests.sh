@@ -1,3 +1,4 @@
 #!/bin/bash
-# Run tests with proper PYTHONPATH setup
-PYTHONPATH=/Users/bill/src/ReversiSB3 python tests/run_tests.py "$@"
+# Run tests with proper PYTHONPATH setup (project root = this script's directory)
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+cd "$ROOT" && PYTHONPATH="$ROOT" uv run python tests/run_tests.py "$@"
