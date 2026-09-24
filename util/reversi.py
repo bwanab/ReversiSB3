@@ -338,7 +338,9 @@ class ReversiEnvCNN(gym.Env):
         render(self.board)
 
 def build_reversi(opponent="Random", verbose=False, opponent_model=None, depth=2) -> ReversiEnvCNN:
-    env = gym.make("ReversiCNN-v0", opponent=opponent, verbose=verbose, opponent_model=opponent_model, depth=depth)
+    # gymnasium >= 1.0 wrappers no longer forward custom attributes (board, player,
+    # get_valid, ...), so hand back the bare env rather than the gym.make wrappers.
+    env = gym.make("ReversiCNN-v0", opponent=opponent, verbose=verbose, opponent_model=opponent_model, depth=depth).unwrapped
     return env
 
 

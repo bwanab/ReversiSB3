@@ -166,6 +166,7 @@ def render(obs):
     return outfile
 
 def mask_fn(env: gym.Env) -> np.ndarray:
+    env = env.unwrapped
     mask = env.get_valid(env.board).reshape(64).tolist()
     return np.array(mask, dtype=bool)
 

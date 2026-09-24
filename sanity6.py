@@ -16,7 +16,7 @@ def sanity6():
     env = build_reversi()
     model = get_model("models/dork8_CNN_test", env, device="mps")
     _, _ = env.reset()
-    env.env.board = test_board
+    env.board = test_board
     action, _, _ = get_action(model, env.board, mask_fn(env), verbose = True)
     assert(action < 0)
 

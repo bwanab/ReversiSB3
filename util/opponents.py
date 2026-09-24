@@ -41,7 +41,7 @@ class ModelOpponent(Opponent):
         net_width=kwargs.get('net_width')
         self.verbose = kwargs.get('verbose', False)
         self.model = get_model(file, env, net_width=net_width)
-        self.alt_env = copy.deepcopy(env)
+        self.alt_env = copy.deepcopy(env.unwrapped)
         self.alt_env.player = BLACK
 
     def get_action(self, env, state):
