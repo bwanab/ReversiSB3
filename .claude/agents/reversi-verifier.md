@@ -50,9 +50,12 @@ Keep game counts small (20-30) unless asked; say how many games a percentage is 
 
 - `sb-play.py -m` takes the bare model name; it prepends `models/` itself
   (`-m models/foo` → looks for `models/models/foo.zip`).
-- `get_model()` silently creates a fresh, untrained model when the file doesn't exist (you'll see
-  "Using ... device / Wrapping the env with a `Monitor` wrapper"). A near-50% win rate vs Random
-  usually means the model file is missing — check `models/` before reporting a regression.
+- `get_model()` (used by sb-train.py, the sanity scripts, and the dataset generators) silently
+  creates a fresh, untrained model when the file doesn't exist; the tell is a "Using mps device"
+  (or cpu/cuda) line, which only appears when a model is created. "Wrapping the env with a
+  `Monitor` wrapper" appears on normal loads too, so it proves nothing. A near-50% win rate vs
+  Random usually means an untrained model — check `models/` before reporting a regression.
+  (`sb-play.py` loads directly and fails with FileNotFoundError on a missing file instead.)
 - Models saved on the old machine (Python 3.10, SB3 2.0) print
   `Exception: code() argument 13 must be str, not int` for `clip_range`/`lr_schedule` on load.
   This is expected and harmless for evaluation (it only matters for resuming training).
