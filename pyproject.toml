@@ -1,0 +1,25 @@
+[project]
+name = "reversisb3"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Bill Allen", email = "bill@k2bea.org" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "flask>=3.1.3",
+    "gymnasium>=1.3.0",
+    "numpy>=2.5.3",
+    "sb3-contrib>=2.9.0",
+    "stable-baselines3>=2.9.0",
+    "torch>=2.14.0",
+    "tqdm>=4.70.1",
+]
+
+[project.scripts]
+reversisb3 = "reversisb3:main"
+
+[build-system]
+requires = ["uv_build>=0.12.15,<0.13.0"]
+build-backend = "uv_build"
