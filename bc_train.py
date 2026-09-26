@@ -22,6 +22,7 @@ from tqdm import tqdm
 from util.reversi import ReversiEnvCNN
 from util.util import get_model, get_device, mask_fn
 from util.opponents import get_opponent
+from util.board_features import random_symmetry
 from sb3_contrib import MaskablePPO
 
 
@@ -114,7 +115,9 @@ def bc_train(
     val_split=0.1,
     value_coef=0.5,
     verbose=True,
-    device="auto"
+    device="auto",
+    input_planes=False,
+    augment=False
 ):
     """
     Train model using behavioral cloning on RAI dataset.
@@ -137,6 +140,12 @@ def bc_train(
         Validation set split (0.1 = 10% validation)
     verbose : bool
         Print training details
+    input_planes : bool
+        Build a fresh model whose CNN expands the board into 5 feature planes
+        (ignored if the model file already exists)
+    augment : bool
+        Apply a random one of the 8 board symmetries to each training example
+        (validation data is left unaugmented)
 
     Returns
     -------
@@ -155,6 +164,8 @@ def bc_train(
     print(f"Batch size: {batch_size}")
     print(f"Learning rate: {learning_rate:.2e}")
     print(f"Validation split: {val_split:.1%}")
+    print(f"Input planes: {input_planes}")
+    print(f"Symmetry augmentation: {augment}")
     print("="*60)
     print()
 
@@ -241,7 +252,8 @@ def bc_train(
         env,
         net_width=net_width,
         learning_rate=learning_rate,  # Use BC learning rate
-        device=device
+        device=device,
+        input_planes=input_planes
     )
 
     print(f"Model created on device: {device}")
@@ -284,6 +296,8 @@ def bc_train(
             states = states.to(device)
             actions = actions.squeeze(1).to(device)  # Shape: [batch_size]
             outcomes = outcomes.squeeze(1).to(device)  # Shape: [batch_size]
+            if augment:
+                states, actions = random_symmetry(states, actions)
 
             # Forward pass through policy and value networks
             features = policy.extract_features(states)
@@ -460,6 +474,10 @@ def main():
                         help='Print detailed training info')
     parser.add_argument('--device', type=str, default='auto', choices=['auto', 'cpu', 'mps', 'cuda'],
                         help='Training device (default: auto = mps/cuda if available, else cpu)')
+    parser.add_argument('--input-planes', action='store_true',
+                        help='New model: feed the CNN own/opponent/empty/legal-move planes instead of the raw board')
+    parser.add_argument('--augment', action='store_true',
+                        help='Randomly rotate/reflect each training example (8 board symmetries)')
 
     args = parser.parse_args()
 
@@ -478,7 +496,9 @@ def main():
         val_split=args.val_split,
         value_coef=args.value_coef,
         verbose=args.verbose,
-        device=args.device
+        device=args.device,
+        input_planes=args.input_planes,
+        augment=args.augment
     )
 
 

@@ -25,6 +25,7 @@ def run_all_tests():
     from test_training_issues import TestTrainingIssues
     from test_step_logic import TestStepFunctionTurnLogic, TestSelfPlayLogic, TestStepFunctionEdgeCases
     from test_lr_update import TestLearningRateUpdates
+    from test_board_features import TestBoardFeatures
     
     # Create test suite
     test_classes = [
@@ -44,7 +45,8 @@ def run_all_tests():
         TestStepFunctionTurnLogic,
         TestSelfPlayLogic,
         TestStepFunctionEdgeCases,
-        TestLearningRateUpdates
+        TestLearningRateUpdates,
+        TestBoardFeatures
     ]
     
     suite = unittest.TestSuite()
@@ -108,6 +110,7 @@ def run_specific_test(test_name):
         'training_issues': 'test_training_issues',
         'step': 'test_step_logic',
         'lr': 'test_lr_update',
+        'features': 'test_board_features',
     }
     
     if test_name in test_map:

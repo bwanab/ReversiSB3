@@ -75,7 +75,7 @@ def set_learning_rate(model: MaskablePPO, lr: float) -> None:
     if hasattr(model, 'lr_schedule'):
         model.lr_schedule = lambda _: lr
 
-def get_model(file, env, net_width=256, learning_rate = 1e-5, model_type="cnn", device="cpu"):
+def get_model(file, env, net_width=256, learning_rate = 1e-5, model_type="cnn", device="cpu", input_planes=False):
     if file is not None and os.path.isfile(file + ".zip"):
         model = MaskablePPO.load(file, env=env)
         #### turns out, this is redundant since policy is always saved with model
@@ -87,7 +87,7 @@ def get_model(file, env, net_width=256, learning_rate = 1e-5, model_type="cnn", 
     elif model_type == "cnn":
         policy_kwargs = dict(
             features_extractor_class=ReversiCNN,
-            features_extractor_kwargs=dict(features_dim=256),
+            features_extractor_kwargs=dict(features_dim=256, input_planes=input_planes),
             normalize_images=False
             )
         model = MaskablePPO("CnnPolicy", 

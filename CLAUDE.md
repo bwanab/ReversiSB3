@@ -30,6 +30,10 @@ changes to the CNN, reusing the BC dataset. The previous best model is kept as a
 - `ReversiCNN`: SB3 features extractor; input is the (1, 8, 8) board with values -1/0/1
 - Five 3x3 conv layers (64, 64, 128, 128, 256 channels, padding 1, ReLU), flattened, then a
   linear layer to 256 features
+- `input_planes=True` (`get_model(..., input_planes=True)`, `bc_train.py --input-planes`) expands
+  the board inside the network into 5 planes: own, opponent, empty, own legal moves, opponent legal
+  moves (`util/board_features.py`). The observation stays (1, 8, 8), so envs/opponents are
+  unchanged, and old models load as before (the flag defaults to False and is saved with the model)
 - Used with MaskablePPO's `CnnPolicy` and `normalize_images=False`
 
 ### Training System (`sb-train.py`)
@@ -108,7 +112,9 @@ uv run python bc_train.py --dataset combined_bc_dataset.pkl --model edax_bc_pret
 ```
 `combined_bc_dataset.pkl` (~3.45M samples) is in the project root (git-ignored; original copy in
 `reversisb3_oob/datasets/`), so steps 1-2 only need rerunning to change the data.
-`bc_train.py` also takes `--value-coef` (value-head loss weight, default 0.5), `-v/--val-split`, and
+`bc_train.py` also takes `--input-planes` (see ReversiCNN above), `--augment` (a random one of
+the 8 board rotations/reflections per training example; validation is unaugmented),
+`--value-coef` (value-head loss weight, default 0.5), `-v/--val-split`, and
 `--device` (default `auto`: MPS/CUDA if available, else CPU). On the M4 Max, MPS is ~13x faster than
 CPU for BC (a full-dataset epoch is ~2.3 min vs ~29 min); CPU was only faster on the old M1 with
 torch 2.0, which is why it used to be hard-coded. 2-epoch baseline on the full dataset: val
@@ -237,8 +243,8 @@ Device selection is handled in `sb-train.py` and passed to model creation.
 
 Run the suite with `./run_tests.sh` (all tests) or `./run_tests.sh <name>` for one group
 (`environment`, `scenarios`, `edge_cases`, `training`, `integration`, `bc`, `focused`,
-`training_issues`, `step`, `lr`, ...). The script sets `PYTHONPATH` to the project root and runs
-through `uv run`. All 83 tests in `tests/` are part of the runner and pass. `test_edax_opponent.py`
+`training_issues`, `step`, `lr`, `features`, ...). The script sets `PYTHONPATH` to the project root
+and runs through `uv run`. All 89 tests in `tests/` are part of the runner and pass. `test_edax_opponent.py`
 in the project root is a separate script that needs the Edax server running.
 
 Env behaviors worth knowing when writing tests:
