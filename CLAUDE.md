@@ -34,6 +34,15 @@ changes to the CNN, reusing the BC dataset. The previous best model is kept as a
   the board inside the network into 5 planes: own, opponent, empty, own legal moves, opponent legal
   moves (`util/board_features.py`). The observation stays (1, 8, 8), so envs/opponents are
   unchanged, and old models load as before (the flag defaults to False and is saved with the model)
+
+### Residual policy (`util/reversi_resnet.py`)
+- `ReversiResNetPolicy` (a `MaskableActorCriticPolicy`): 5 input planes → conv stem → `blocks`
+  residual blocks of `channels` (3x3 conv + BatchNorm) → spatial heads. The policy head is 1x1
+  convs giving one logit per square (`action_net` is `Identity`); the value head is a 1x1 conv →
+  Linear 64→64 → `value_net`. The trunk is shared by both heads
+- Create with `get_model(..., model_type="resnet", channels=64, blocks=6)` or
+  `bc_train.py --arch resnet --channels 64 --blocks 6` (64x6 ≈ 0.45M params, 128x8 ≈ 2.4M;
+  the CNN is 4.8M). The policy class is saved in the zip, so `sb-train.py`/`sb-play.py` load it as-is
 - Used with MaskablePPO's `CnnPolicy` and `normalize_images=False`
 
 ### Training System (`sb-train.py`)
@@ -112,7 +121,8 @@ uv run python bc_train.py --dataset combined_bc_dataset.pkl --model edax_bc_pret
 ```
 `combined_bc_dataset.pkl` (~3.45M samples) is in the project root (git-ignored; original copy in
 `reversisb3_oob/datasets/`), so steps 1-2 only need rerunning to change the data.
-`bc_train.py` also takes `--input-planes` (see ReversiCNN above), `--augment` (a random one of
+`bc_train.py` also takes `--arch cnn|resnet` with `--channels`/`--blocks` (see Residual policy
+above), `--input-planes` (see ReversiCNN above), `--augment` (a random one of
 the 8 board rotations/reflections per training example; validation is unaugmented),
 `--value-coef` (value-head loss weight, default 0.5), `-v/--val-split`, and
 `--device` (default `auto`: MPS/CUDA if available, else CPU). On the M4 Max, MPS is ~13x faster than
@@ -243,8 +253,8 @@ Device selection is handled in `sb-train.py` and passed to model creation.
 
 Run the suite with `./run_tests.sh` (all tests) or `./run_tests.sh <name>` for one group
 (`environment`, `scenarios`, `edge_cases`, `training`, `integration`, `bc`, `focused`,
-`training_issues`, `step`, `lr`, `features`, ...). The script sets `PYTHONPATH` to the project root
-and runs through `uv run`. All 89 tests in `tests/` are part of the runner and pass. `test_edax_opponent.py`
+`training_issues`, `step`, `lr`, `features`, `resnet`, ...). The script sets `PYTHONPATH` to the
+project root and runs through `uv run`. All 96 tests in `tests/` are part of the runner and pass. `test_edax_opponent.py`
 in the project root is a separate script that needs the Edax server running.
 
 Env behaviors worth knowing when writing tests:

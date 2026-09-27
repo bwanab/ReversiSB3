@@ -26,6 +26,7 @@ def run_all_tests():
     from test_step_logic import TestStepFunctionTurnLogic, TestSelfPlayLogic, TestStepFunctionEdgeCases
     from test_lr_update import TestLearningRateUpdates
     from test_board_features import TestBoardFeatures
+    from test_resnet_policy import TestResNetPolicy
     
     # Create test suite
     test_classes = [
@@ -46,7 +47,8 @@ def run_all_tests():
         TestSelfPlayLogic,
         TestStepFunctionEdgeCases,
         TestLearningRateUpdates,
-        TestBoardFeatures
+        TestBoardFeatures,
+        TestResNetPolicy
     ]
     
     suite = unittest.TestSuite()
@@ -111,6 +113,7 @@ def run_specific_test(test_name):
         'step': 'test_step_logic',
         'lr': 'test_lr_update',
         'features': 'test_board_features',
+        'resnet': 'test_resnet_policy',
     }
     
     if test_name in test_map:

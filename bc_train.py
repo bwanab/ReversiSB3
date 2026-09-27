@@ -117,7 +117,10 @@ def bc_train(
     verbose=True,
     device="auto",
     input_planes=False,
-    augment=False
+    augment=False,
+    arch="cnn",
+    channels=64,
+    blocks=6
 ):
     """
     Train model using behavioral cloning on RAI dataset.
@@ -146,6 +149,11 @@ def bc_train(
     augment : bool
         Apply a random one of the 8 board symmetries to each training example
         (validation data is left unaugmented)
+    arch : str
+        'cnn' (ReversiCNN) or 'resnet' (residual trunk with spatial heads; always
+        uses the 5 input planes). Ignored if the model file already exists
+    channels, blocks : int
+        ResNet trunk width and number of residual blocks
 
     Returns
     -------
@@ -164,7 +172,8 @@ def bc_train(
     print(f"Batch size: {batch_size}")
     print(f"Learning rate: {learning_rate:.2e}")
     print(f"Validation split: {val_split:.1%}")
-    print(f"Input planes: {input_planes}")
+    print(f"Architecture: {arch}" + (f" ({blocks} blocks x {channels} channels)" if arch == "resnet" else ""))
+    print(f"Input planes: {input_planes or arch == 'resnet'}")
     print(f"Symmetry augmentation: {augment}")
     print("="*60)
     print()
@@ -253,11 +262,15 @@ def bc_train(
         net_width=net_width,
         learning_rate=learning_rate,  # Use BC learning rate
         device=device,
-        input_planes=input_planes
+        input_planes=input_planes,
+        model_type=arch,
+        channels=channels,
+        blocks=blocks
     )
 
     print(f"Model created on device: {device}")
     print(f"Policy architecture: {model.policy}")
+    print(f"Parameters: {sum(p.numel() for p in model.policy.parameters()):,}")
     print()
 
     # Get policy network and optimizer
@@ -478,6 +491,12 @@ def main():
                         help='New model: feed the CNN own/opponent/empty/legal-move planes instead of the raw board')
     parser.add_argument('--augment', action='store_true',
                         help='Randomly rotate/reflect each training example (8 board symmetries)')
+    parser.add_argument('--arch', choices=['cnn', 'resnet'], default='cnn',
+                        help='New model: ReversiCNN or residual trunk with spatial heads')
+    parser.add_argument('--channels', type=int, default=64,
+                        help='ResNet trunk channels')
+    parser.add_argument('--blocks', type=int, default=6,
+                        help='ResNet residual blocks')
 
     args = parser.parse_args()
 
@@ -498,7 +517,10 @@ def main():
         verbose=args.verbose,
         device=args.device,
         input_planes=args.input_planes,
-        augment=args.augment
+        augment=args.augment,
+        arch=args.arch,
+        channels=args.channels,
+        blocks=args.blocks
     )
 
 

@@ -13,6 +13,7 @@ from reversi_ai.reversiai import ReversiAI
 
 from sb3_contrib import MaskablePPO
 from util.reversi_cnn import ReversiCNN
+from util.reversi_resnet import ReversiResNetPolicy
 #from sb3_contrib.common.maskable.policies import MaskableActorCriticPolicy
 
 import torch as th
@@ -75,7 +76,26 @@ def set_learning_rate(model: MaskablePPO, lr: float) -> None:
     if hasattr(model, 'lr_schedule'):
         model.lr_schedule = lambda _: lr
 
-def get_model(file, env, net_width=256, learning_rate = 1e-5, model_type="cnn", device="cpu", input_planes=False):
+# PPO hyperparameters shared by the CNN and ResNet policies
+PPO_KWARGS = dict(
+    batch_size=256,
+    n_steps=2048,
+    ent_coef=0.03,
+    n_epochs=5,             # Reduced from 15 to avoid overfitting
+    gae_lambda=0.90,
+    gamma=0.98,
+    clip_range=0.1,          # Increased from 0.01 to allow policy updates
+    verbose=1,
+)
+
+def get_model(file, env, net_width=256, learning_rate = 1e-5, model_type="cnn", device="cpu", input_planes=False,
+              channels=64, blocks=6):
+    """Load `file`.zip if it exists, otherwise create a new model.
+
+    model_type: "cnn" (ReversiCNN; input_planes selects the 5-plane input), "resnet"
+    (ReversiResNetPolicy: residual trunk of `blocks` x `channels` with spatial heads;
+    always uses the 5-plane input), or anything else for the legacy MLP policy.
+    """
     if file is not None and os.path.isfile(file + ".zip"):
         model = MaskablePPO.load(file, env=env)
         #### turns out, this is redundant since policy is always saved with model
@@ -95,15 +115,18 @@ def get_model(file, env, net_width=256, learning_rate = 1e-5, model_type="cnn", 
                             policy_kwargs=policy_kwargs, 
                             tensorboard_log=file + ".log",
                             device=device,
-                            batch_size=256,
-                            n_steps=2048,
                             learning_rate=learning_rate,
-                            ent_coef=0.03,
-                            n_epochs=5,             # Reduced from 15 to avoid overfitting
-                            gae_lambda=0.90,
-                            gamma=0.98,
-                            clip_range=0.1,          # Increased from 0.01 to allow policy updates
-                            verbose=1
+                            **PPO_KWARGS
+        )
+    elif model_type == "resnet":
+        policy_kwargs = dict(features_extractor_kwargs=dict(channels=channels, blocks=blocks))
+        model = MaskablePPO(ReversiResNetPolicy,
+                            env,
+                            policy_kwargs=policy_kwargs,
+                            tensorboard_log=file + ".log",
+                            device=device,
+                            learning_rate=learning_rate,
+                            **PPO_KWARGS
         )
     else:
         # lrs = lambda x: 0.003
