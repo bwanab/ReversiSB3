@@ -134,8 +134,8 @@ uv run python bc_train.py --dataset combined_bc_dataset.pkl --model edax_bc_pret
 ```
 `combined_bc_dataset.pkl` (~3.45M samples) is in the project root (git-ignored; original copy in
 `reversisb3_oob/datasets/`), so steps 1-2 only need rerunning to change the data.
-`bc_train.py` also takes `--arch cnn|resnet` with `--channels`/`--blocks` (see Residual policy
-above), `--input-planes` (see ReversiCNN above), `--augment` (a random one of
+`bc_train.py` also takes `--lr-schedule constant|cosine` (cosine decays to 0 over all epochs),
+`--arch cnn|resnet` with `--channels`/`--blocks` (see Residual policy above), `--input-planes` (see ReversiCNN above), `--augment` (a random one of
 the 8 board rotations/reflections per training example; validation is unaugmented),
 `--value-coef` (value-head loss weight, default 0.5), `-v/--val-split`, and
 `--device` (default `auto`: MPS/CUDA if available, else CPU). On the M4 Max, MPS is ~13x faster than

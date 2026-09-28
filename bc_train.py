@@ -120,7 +120,8 @@ def bc_train(
     augment=False,
     arch="cnn",
     channels=64,
-    blocks=6
+    blocks=6,
+    lr_schedule="constant"
 ):
     """
     Train model using behavioral cloning on RAI dataset.
@@ -154,6 +155,8 @@ def bc_train(
         uses the 5 input planes). Ignored if the model file already exists
     channels, blocks : int
         ResNet trunk width and number of residual blocks
+    lr_schedule : str
+        'constant', or 'cosine' (decay from learning_rate to 0 over all epochs, per batch)
 
     Returns
     -------
@@ -170,7 +173,7 @@ def bc_train(
     print(f"Model: {model_name}")
     print(f"Epochs: {epochs}")
     print(f"Batch size: {batch_size}")
-    print(f"Learning rate: {learning_rate:.2e}")
+    print(f"Learning rate: {learning_rate:.2e} ({lr_schedule})")
     print(f"Validation split: {val_split:.1%}")
     print(f"Architecture: {arch}" + (f" ({blocks} blocks x {channels} channels)" if arch == "resnet" else ""))
     print(f"Input planes: {input_planes or arch == 'resnet'}")
@@ -279,6 +282,9 @@ def bc_train(
 
     # Create optimizer for policy parameters only
     optimizer = torch.optim.Adam(policy.parameters(), lr=learning_rate)
+    scheduler = None
+    if lr_schedule == "cosine":
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs * len(train_loader))
 
     # Training history
     history = {
@@ -333,6 +339,8 @@ def bc_train(
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            if scheduler is not None:
+                scheduler.step()
 
             # Track metrics
             train_loss += policy_loss.item() * states.size(0)
@@ -409,6 +417,7 @@ def bc_train(
         print(f"  Val Policy Loss:   {val_loss:.4f}, Val Value Loss:   {val_value_loss:.4f}, Val Acc:   {100*val_acc:.2f}%")
         print(f"  Random Win Rate:   {100*random_win_rate:.1f}% ({random_win_rate*100:.0f}/100)")
         print(f"  RAI-1 Win Rate:    {100*rai1_win_rate:.1f}% ({rai1_win_rate*100:.0f}/100)")
+        print(f"  Learning rate now: {optimizer.param_groups[0]['lr']:.2e}")
         print()
 
         # Save checkpoint with epoch number (allows comparing different epochs)
@@ -497,6 +506,8 @@ def main():
                         help='ResNet trunk channels')
     parser.add_argument('--blocks', type=int, default=6,
                         help='ResNet residual blocks')
+    parser.add_argument('--lr-schedule', choices=['constant', 'cosine'], default='constant',
+                        help='cosine: decay the learning rate to 0 over all epochs')
 
     args = parser.parse_args()
 
@@ -520,7 +531,8 @@ def main():
         augment=args.augment,
         arch=args.arch,
         channels=args.channels,
-        blocks=args.blocks
+        blocks=args.blocks,
+        lr_schedule=args.lr_schedule
     )
 
 
