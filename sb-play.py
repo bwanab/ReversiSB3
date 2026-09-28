@@ -18,8 +18,10 @@ def play_games(file,
                opponent_model = None,
                depth=2,
                random_opening=0,
-               seed=None):
-    env = build_reversi(opponent=opponentName, verbose=verbose, opponent_model=opponent_model, depth=depth)
+               seed=None,
+               start_positions=None):
+    env = build_reversi(opponent=opponentName, verbose=verbose, opponent_model=opponent_model, depth=depth,
+                        start_positions=start_positions)
     #opponent = get_opponent(opponentName, file=file, env=env)
 
     model = MaskablePPO.load(file, env=env)
@@ -45,7 +47,10 @@ if __name__ == '__main__':
     parser.add_argument("--random-opening", type=int, default=0,
                         help="start each game with this many random plies (both sides) to vary positions")
     parser.add_argument("--seed", type=int, default=None,
-                        help="seed for --random-opening, so different models face the same openings")
+                        help="seed for --random-opening / --start-positions, so different models face the same openings")
+    parser.add_argument("--start-positions", type=str, default=None,
+                        help="start each game from a random position in this .npy (e.g. opening_positions.npy "
+                             "from make_opening_positions.py), model to move")
     args = parser.parse_args()
 
     import time
@@ -80,7 +85,8 @@ if __name__ == '__main__':
                                 opponent_model=args.opp_model,
                                 depth=depth,
                                 random_opening=args.random_opening,
-                                seed=args.seed)
+                                seed=args.seed,
+                                start_positions=args.start_positions)
         print(f"Black wins: {100 * black_wins / n_games}%")
 
     end = time.time()

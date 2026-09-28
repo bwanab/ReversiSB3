@@ -27,7 +27,7 @@ def play(model, num_games, opponent, deterministic, verbose, random_opening_plie
     vec_env = model.get_env()
     env = vec_env.envs[0].unwrapped
     # obs = vec_env.reset()
-    obs, _ = env.reset()
+    obs, _ = env.reset(seed=seed)  # seeds the env's start-position sampling, if it has any
     black_wins = 0
     rng = np.random.default_rng(seed)
 

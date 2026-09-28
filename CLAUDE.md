@@ -112,6 +112,13 @@ Options:
   BLACK. `--seed S` makes the openings reproducible so different models face the same positions.
   **Use this for headline win rates** (e.g. `--random-opening 8 --seed 42`); standard-opening
   results mostly measure memorized lines against Edax (see Training History)
+- `--start-positions FILE`: start each game from a random position in a .npy (model to move),
+  seeded by `--seed`. `opening_positions.npy` (from `make_opening_positions.py`: the 150 distinct
+  positions along the named openings in `moves.txt`, symmetry-merged, 8-22 stones) gives a balanced,
+  realistic second evaluation next to `--random-opening`
+
+`opening_agreement.py -m MODEL ...` reports how often a model's top move is a `moves.txt` book
+continuation (and its probability mass on book moves) over the 412 book positions after 4+ plies.
 
 The model always plays BLACK. Model-vs-Model (`-o Model -r ...`) is color-balanced.
 
@@ -304,9 +311,9 @@ Device selection is handled in `sb-train.py` and passed to model creation.
 
 Run the suite with `./run_tests.sh` (all tests) or `./run_tests.sh <name>` for one group
 (`environment`, `scenarios`, `edge_cases`, `training`, `integration`, `bc`, `focused`,
-`training_issues`, `step`, `lr`, `features`, `resnet`, `play`, `starts`, `refresh`, ...). The script
-sets `PYTHONPATH` to the project root and runs through `uv run`. All 110 tests in `tests/` are part of
-the runner and pass. `test_edax_opponent.py`
+`training_issues`, `step`, `lr`, `features`, `resnet`, `play`, `starts`, `refresh`, `openings`, ...).
+The script sets `PYTHONPATH` to the project root and runs through `uv run`. All 116 tests in `tests/`
+are part of the runner and pass. `test_edax_opponent.py`
 in the project root is a separate script that needs the Edax server running.
 
 Env behaviors worth knowing when writing tests:

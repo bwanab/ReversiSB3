@@ -30,6 +30,7 @@ def run_all_tests():
     from test_play import TestRandomOpening
     from test_start_positions import TestStartPositions
     from test_opponent_refresh import TestOpponentRefresh
+    from test_openings import TestOpenings
     
     # Create test suite
     test_classes = [
@@ -54,7 +55,8 @@ def run_all_tests():
         TestResNetPolicy,
         TestRandomOpening,
         TestStartPositions,
-        TestOpponentRefresh
+        TestOpponentRefresh,
+        TestOpenings
     ]
     
     suite = unittest.TestSuite()
@@ -123,6 +125,7 @@ def run_specific_test(test_name):
         'play': 'test_play',
         'starts': 'test_start_positions',
         'refresh': 'test_opponent_refresh',
+        'openings': 'test_openings',
     }
     
     if test_name in test_map:
