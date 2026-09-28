@@ -467,6 +467,11 @@ Usage Examples:
     parser.add_argument("-t", "--test-opponent", default="Random", help="Test opponent type")
     parser.add_argument("-w", "--net-width", type=int, default=512, help="Neural network width - Not for CNNs!")
     parser.add_argument("-lr", "--learning-rate", type=float, default=2e-5, help="Learning rate (default: 2e-5)")
+    parser.add_argument("--start-positions", type=str, default=None,
+                        help="start games from positions in this .npy (see make_start_positions.py) instead "
+                             "of the standard opening, so RL can't just memorize lines against Edax")
+    parser.add_argument("--standard-start-ratio", type=float, default=0.0,
+                        help="with --start-positions, fraction of games that still use the standard opening")
 
     # Learning rate decay (for sequential mode)
     parser.add_argument("--start-lr", type=float, default=None,
@@ -499,7 +504,11 @@ Usage Examples:
     )
 
     # Initial environment setup (will be reconfigured based on mode)
-    env: ReversiEnvCNN = ActionMasker(build_reversi(opponent="Random"), mask_fn)
+    env: ReversiEnvCNN = ActionMasker(build_reversi(opponent="Random", start_positions=args.start_positions,
+                                                    standard_start_prob=args.standard_start_ratio), mask_fn)
+    if args.start_positions:
+        print(f"🎲 Varied starts: {len(env.unwrapped.start_positions):,} positions from {args.start_positions}, "
+              f"{args.standard_start_ratio:.0%} standard opening")
 
     model = get_model(file, env, net_width=args.net_width, learning_rate=args.learning_rate, model_type="cnn", device=device)
     

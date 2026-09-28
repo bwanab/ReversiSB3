@@ -19,7 +19,7 @@ class ReversiEnvCNN(gym.Env):
     def __init__(self, board_shape=8, illegal_action_mode: str='resign',
             render_characters: str='+ox', allow_pass: bool=True, 
             render_mode='human', opponent = "Random", opponent_model=None, verbose=False,
-            depth=2):
+            depth=2, start_positions=None, standard_start_prob=0.0):
         """Create a board game.
 
         Parameters
@@ -34,6 +34,12 @@ class ReversiEnvCNN(gym.Env):
         allow_pass: bool=True
             - True:  allow pass
             - False: not allow pass
+        start_positions: None, a path to a .npy file, or an array of shape (N, 64) or (N, 1, 8, 8)
+            Boards (values -1/0/1, BLACK to move) to start games from, so RL doesn't learn
+            to replay lines against a deterministic opponent from the one standard opening.
+            Each reset() picks one uniformly at random; see make_start_positions.py.
+        standard_start_prob: float
+            With start_positions set, the fraction of games that still use the standard opening.
         """
         self.allow_pass = allow_pass
 
@@ -56,6 +62,11 @@ class ReversiEnvCNN(gym.Env):
         self.actual_player = BLACK
         self.opponent = get_opponent(opponent, opponent_model=opponent_model, env=self, depth=depth)
         self.verbose = verbose
+        if isinstance(start_positions, str):
+            start_positions = np.load(start_positions)
+        self.start_positions = None if start_positions is None else \
+            np.asarray(start_positions, dtype=np.int8).reshape(-1, *self.board.shape)
+        self.standard_start_prob = standard_start_prob
 
     def set_opponent(self, opponent, opponent_model, depth=2):
         self.opponent = get_opponent(opponent, opponent_model=opponent_model, env=self, depth=depth)
@@ -66,8 +77,11 @@ class ReversiEnvCNN(gym.Env):
         _, x, y = (s // 2 for s in self.board.shape)
         board = self.board
         np.copyto(board, 0)
-        board[0, x - 1, y - 1] = board[0, x, y] = -1
-        board[0, x - 1, y] = board[0, x, y - 1] = 1
+        if self.start_positions is not None and self.np_random.random() >= self.standard_start_prob:
+            board[:] = self.start_positions[self.np_random.integers(len(self.start_positions))]
+        else:
+            board[0, x - 1, y - 1] = board[0, x, y] = -1
+            board[0, x - 1, y] = board[0, x, y - 1] = 1
         self.player = BLACK
         self.actual_player = BLACK
         return board, {}
@@ -338,10 +352,12 @@ class ReversiEnvCNN(gym.Env):
     def render(self):
         render(self.board)
 
-def build_reversi(opponent="Random", verbose=False, opponent_model=None, depth=2) -> ReversiEnvCNN:
+def build_reversi(opponent="Random", verbose=False, opponent_model=None, depth=2,
+                  start_positions=None, standard_start_prob=0.0) -> ReversiEnvCNN:
     # gymnasium >= 1.0 wrappers no longer forward custom attributes (board, player,
     # get_valid, ...), so hand back the bare env rather than the gym.make wrappers.
-    env = gym.make("ReversiCNN-v0", opponent=opponent, verbose=verbose, opponent_model=opponent_model, depth=depth).unwrapped
+    env = gym.make("ReversiCNN-v0", opponent=opponent, verbose=verbose, opponent_model=opponent_model, depth=depth,
+                   start_positions=start_positions, standard_start_prob=standard_start_prob).unwrapped
     return env
 
 

@@ -22,3 +22,4 @@ models/**
 reversisb3_oob/
 # CSV artifacts written by the BC tests
 test_*_training.csv
+*.npy

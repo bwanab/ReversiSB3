@@ -83,6 +83,13 @@ uv run python sb-train.py --mode selfplay -m MODEL_NAME --random-ratio 0.1 \
 uv run python sb-train.py --mode mixed -m MODEL_NAME --timesteps 1000000 \
     --selfplay-ratio 0.85 --rai-ratio 0.10 --rai-depth 1 -lr 5e-7
 ```
+**Varied starts (use for all Edax training):** `--start-positions start_positions.npy` starts each
+game from a random one of ~119k distinct real-game positions (8-20 stones, BLACK to move) instead
+of the standard opening, so RL can't just memorize lines against Edax; `--standard-start-ratio`
+(e.g. 0.05) keeps some standard-opening games. Build the file (git-ignored) with
+`uv run python make_start_positions.py` (from `combined_bc_dataset.pkl`; `--min-stones`/`--max-stones`).
+The env option is `ReversiEnvCNN(start_positions=..., standard_start_prob=...)`.
+
 Common options: `-m/--model` (name; saved as `models/{name}_CNN_test.zip`), `--timesteps`,
 `-lr/--learning-rate` (or `--start-lr`/`--end-lr` for decay), `--refresh-interval` (self-play
 opponent refresh / checkpoint cadence), `-t/--test-opponent`. `-e`, `-o`, `-p`, `-r` are legacy
@@ -293,8 +300,9 @@ Device selection is handled in `sb-train.py` and passed to model creation.
 
 Run the suite with `./run_tests.sh` (all tests) or `./run_tests.sh <name>` for one group
 (`environment`, `scenarios`, `edge_cases`, `training`, `integration`, `bc`, `focused`,
-`training_issues`, `step`, `lr`, `features`, `resnet`, `play`, ...). The script sets `PYTHONPATH`
-to the project root and runs through `uv run`. All 100 tests in `tests/` are part of the runner and pass. `test_edax_opponent.py`
+`training_issues`, `step`, `lr`, `features`, `resnet`, `play`, `starts`, ...). The script sets
+`PYTHONPATH` to the project root and runs through `uv run`. All 108 tests in `tests/` are part of the
+runner and pass. `test_edax_opponent.py`
 in the project root is a separate script that needs the Edax server running.
 
 Env behaviors worth knowing when writing tests:
