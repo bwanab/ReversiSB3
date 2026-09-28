@@ -31,6 +31,7 @@ def run_all_tests():
     from test_start_positions import TestStartPositions
     from test_opponent_refresh import TestOpponentRefresh
     from test_openings import TestOpenings
+    from test_training_mix import TestTrainingMix
     
     # Create test suite
     test_classes = [
@@ -57,7 +58,8 @@ def run_all_tests():
         TestPairedStarts,
         TestStartPositions,
         TestOpponentRefresh,
-        TestOpenings
+        TestOpenings,
+        TestTrainingMix
     ]
     
     suite = unittest.TestSuite()
@@ -127,6 +129,7 @@ def run_specific_test(test_name):
         'starts': 'test_start_positions',
         'refresh': 'test_opponent_refresh',
         'openings': 'test_openings',
+        'mix': 'test_training_mix',
     }
     
     if test_name in test_map:

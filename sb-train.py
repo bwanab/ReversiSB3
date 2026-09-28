@@ -3,6 +3,7 @@ from util.reversi import build_reversi, ReversiEnvCNN
 from util.util import mask_fn, get_model, set_learning_rate
 from util.play import play
 from util.opponents import get_opponent, RandomOpponent
+from util.training import parse_edax_mix, mixed_block_plan
 
 import numpy as np
 import os.path
@@ -318,6 +319,49 @@ def train_edax_curriculum(model, env, args, file, checkpoint_cb, net_width, time
 
     print(f"✅ Edax curriculum training complete!")
 
+def train_selfplay_edax(model, env, args, file, checkpoint_cb, net_width, timesteps,
+                        selfplay_ratio, edax_depths, edax_ratios, random_ratio, refresh_interval=None):
+    """Mode 6: self-play (opponent refreshed each block) mixed with Edax at several depths and Random."""
+    if refresh_interval is None:
+        refresh_interval = timesteps // 5
+
+    print(f"🎯 Training Mode: Self-play + Edax for {timesteps:,} timesteps")
+    for opp, depth, ts in mixed_block_plan(timesteps, selfplay_ratio, edax_depths, edax_ratios, random_ratio):
+        label = f"Edax-{depth}" if opp == "Edax" else opp
+        print(f"   - {label}: {ts:,} timesteps ({100 * ts / timesteps:.1f}%)")
+    print(f"   - Refresh interval: {refresh_interval:,} timesteps")
+
+    temp_opponent = file + "_temp_opponent"
+    timesteps_trained = 0
+    while timesteps_trained < timesteps:
+        block_timesteps = min(refresh_interval, timesteps - timesteps_trained)
+        plan = mixed_block_plan(block_timesteps, selfplay_ratio, edax_depths, edax_ratios, random_ratio)
+        print(f"\n--- Block {timesteps_trained//refresh_interval + 1}: {block_timesteps:,} timesteps ---")
+        print("    " + " | ".join(f"{'Edax-' + str(d) if o == 'Edax' else o}: {t:,}" for o, d, t in plan))
+
+        for opp, depth, block_ts in plan:
+            if opp == "Self":
+                print(f"💾 Saving current model as opponent: {temp_opponent}")
+                model.save(temp_opponent)
+                print(f"🤖 Self-play training: {block_ts:,} timesteps")
+                env.unwrapped.set_opponent("Model", temp_opponent, reload=True)  # file was just overwritten
+            elif opp == "Edax":
+                print(f"🧠 Edax-{depth} training: {block_ts:,} timesteps")
+                env.unwrapped.set_opponent("Edax", None, depth=depth)
+            else:
+                print(f"🎲 Random training: {block_ts:,} timesteps")
+                env.unwrapped.set_opponent("Random", None)
+            learn_helper(PlayCallback, args, file, checkpoint_cb, env, net_width, model, block_ts)
+
+        timesteps_trained += block_timesteps
+
+    try:
+        if os.path.exists(temp_opponent + ".zip"):
+            os.remove(temp_opponent + ".zip")
+            print(f"🧹 Cleaned up temp opponent file: {temp_opponent}.zip")
+    except Exception as e:
+        print(f"⚠️  Warning: Could not clean up temp file: {e}")
+
 def train_sequential(model, env, args, file, checkpoint_cb, net_width, random_timesteps, selfplay_timesteps, random_ratio=0.2):
     """Mode 3: Train random-only, then self-play mixed with optional LR decay."""
     total_timesteps = random_timesteps + selfplay_timesteps
@@ -422,14 +466,21 @@ Usage Examples:
   python sb-train.py --mode mixed --timesteps 1000000 -m "my_model" \\
                      --selfplay-ratio 0.75 --random-ratio 0.20 --rai-ratio 0.05 --rai-depth 2
 
+  # Mode 6: Self-play + Edax + Random (60/30/10), varied starts
+  python sb-train.py --mode selfplay-edax --timesteps 1000000 -m "my_model" \\
+                     --selfplay-ratio 0.6 --edax-depths 1,2,3 --edax-ratios 0.1,0.1,0.1 --random-ratio 0.1 \\
+                     --start-positions start_positions.npy --standard-start-ratio 0.05
+
   # Quick defaults
   python sb-train.py --mode selfplay --timesteps 100000  # Uses 20% random, refreshes every 20k steps
 ''',
                     formatter_class=argparse.RawDescriptionHelpFormatter)
 
     # Training mode selection
-    parser.add_argument("--mode", choices=["random", "selfplay", "sequential", "mixed", "edax-curriculum"], default="random",
-                       help="Training mode: random, selfplay, sequential, mixed, or edax-curriculum")
+    parser.add_argument("--mode", choices=["random", "selfplay", "sequential", "mixed", "edax-curriculum", "selfplay-edax"],
+                       default="random",
+                       help="Training mode: random, selfplay, sequential, mixed, edax-curriculum, or selfplay-edax "
+                            "(self-play at --selfplay-ratio + Edax at --edax-depths/--edax-ratios + --random-ratio)")
     
     # Timesteps configuration
     parser.add_argument("--timesteps", type=int, default=200_000,
@@ -447,7 +498,7 @@ Usage Examples:
 
     # Mixed mode configuration (3-way: Self/Random/RAI)
     parser.add_argument("--selfplay-ratio", type=float, default=0.75,
-                       help="Ratio of self-play in mixed mode (default: 0.75)")
+                       help="Ratio of self-play in mixed and selfplay-edax modes (default: 0.75)")
     parser.add_argument("--rai-ratio", type=float, default=0.05,
                        help="Ratio of RAI training in mixed mode (default: 0.05)")
     parser.add_argument("-d", "--rai-depth", type=int, default=2,
@@ -571,6 +622,21 @@ Usage Examples:
         train_edax_curriculum(model, env, args, file, checkpoint_cb, args.net_width,
                             args.timesteps, edax_depths, edax_ratios,
                             args.random_ratio, refresh_interval)
+
+    elif args.mode == "selfplay-edax":
+        if args.edax_depths is None or args.edax_ratios is None:
+            print("❌ Error: --edax-depths and --edax-ratios are required for selfplay-edax mode")
+            print("   Example: --selfplay-ratio 0.6 --edax-depths 1,2,3 --edax-ratios 0.1,0.1,0.1 --random-ratio 0.1")
+            exit(1)
+        try:
+            edax_depths, edax_ratios = parse_edax_mix(args.edax_depths, args.edax_ratios)
+        except ValueError as e:
+            print(f"❌ Error parsing --edax-depths/--edax-ratios: {e}")
+            exit(1)
+
+        refresh_interval = args.refresh_interval or (args.timesteps // 5)
+        train_selfplay_edax(model, env, args, file, checkpoint_cb, args.net_width, args.timesteps,
+                            args.selfplay_ratio, edax_depths, edax_ratios, args.random_ratio, refresh_interval)
 
     # Save the final model
     model.save(file)

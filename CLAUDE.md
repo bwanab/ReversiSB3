@@ -51,8 +51,11 @@ changes to the CNN, reusing the BC dataset. The previous best model is kept as a
 - MaskablePPO (sb3-contrib) with action masking, TensorBoard logging, and checkpoints
 - `--mode` selects the opponent mix: `random`, `selfplay` (vs a periodically refreshed copy of
   itself, plus `--random-ratio` random games), `sequential` (random phase then self-play),
-  `mixed` (self-play / random / RAI by `--selfplay-ratio` and `--rai-ratio`), and
-  `edax-curriculum` (Edax at `--edax-depths` weighted by `--edax-ratios`, plus random)
+  `mixed` (self-play / random / RAI by `--selfplay-ratio` and `--rai-ratio`),
+  `edax-curriculum` (Edax at `--edax-depths` weighted by `--edax-ratios`, plus random), and
+  `selfplay-edax` (self-play at `--selfplay-ratio` + Edax at `--edax-depths`/`--edax-ratios` +
+  `--random-ratio`; ratios are normalized, each `--refresh-interval` block trains the opponents in
+  that order, split by `util/training.py:mixed_block_plan`)
 
 ### Opponent System (`util/opponents.py`)
 - Opponents: `Random`, `Human`, `Model` (a saved model playing WHITE), `RAI` (reversi-python-ai
@@ -78,6 +81,11 @@ uv run python sb-train.py --mode edax-curriculum -m MODEL_NAME \
 # Self-play (plus 10% random games)
 uv run python sb-train.py --mode selfplay -m MODEL_NAME --random-ratio 0.1 \
     --timesteps 200000 --refresh-interval 50000 -lr 3e-6
+
+# Self-play + Edax + Random (60/30/10), varied starts
+uv run python sb-train.py --mode selfplay-edax -m MODEL_NAME --timesteps 1000000 \
+    --selfplay-ratio 0.6 --edax-depths 1,2,3 --edax-ratios 0.1,0.1,0.1 --random-ratio 0.1 \
+    --refresh-interval 100000 -lr 1e-5 --start-positions start_positions.npy --standard-start-ratio 0.05
 
 # Mixed: self-play / RAI-1 / remainder random
 uv run python sb-train.py --mode mixed -m MODEL_NAME --timesteps 1000000 \
@@ -317,8 +325,8 @@ Device selection is handled in `sb-train.py` and passed to model creation.
 
 Run the suite with `./run_tests.sh` (all tests) or `./run_tests.sh <name>` for one group
 (`environment`, `scenarios`, `edge_cases`, `training`, `integration`, `bc`, `focused`,
-`training_issues`, `step`, `lr`, `features`, `resnet`, `play`, `starts`, `refresh`, `openings`, ...).
-The script sets `PYTHONPATH` to the project root and runs through `uv run`. All 118 tests in `tests/`
+`training_issues`, `step`, `lr`, `features`, `resnet`, `play`, `starts`, `refresh`, `openings`, `mix`, ...).
+The script sets `PYTHONPATH` to the project root and runs through `uv run`. All 124 tests in `tests/`
 are part of the runner and pass. `test_edax_opponent.py`
 in the project root is a separate script that needs the Edax server running.
 
