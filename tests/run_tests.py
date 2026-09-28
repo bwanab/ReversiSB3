@@ -27,6 +27,7 @@ def run_all_tests():
     from test_lr_update import TestLearningRateUpdates
     from test_board_features import TestBoardFeatures
     from test_resnet_policy import TestResNetPolicy
+    from test_play import TestRandomOpening
     
     # Create test suite
     test_classes = [
@@ -48,7 +49,8 @@ def run_all_tests():
         TestStepFunctionEdgeCases,
         TestLearningRateUpdates,
         TestBoardFeatures,
-        TestResNetPolicy
+        TestResNetPolicy,
+        TestRandomOpening
     ]
     
     suite = unittest.TestSuite()
@@ -114,6 +116,7 @@ def run_specific_test(test_name):
         'lr': 'test_lr_update',
         'features': 'test_board_features',
         'resnet': 'test_resnet_policy',
+        'play': 'test_play',
     }
     
     if test_name in test_map:

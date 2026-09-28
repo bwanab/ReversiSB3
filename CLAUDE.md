@@ -13,7 +13,9 @@ lookahead once in 100 games, then in a majority, then beat RAI-4 in a majority. 
 exceeded long ago; Edax is much stronger than RAI at every depth and is now the benchmark.
 
 **Current goal:** win against progressively deeper Edax searches. The previous best model beats
-Edax up to depth 6 almost every game but hits a wall at depth 8 (see Training History below).
+Edax up to depth 6 almost every game from the standard opening but hits a wall at depth 8, and
+**from randomized openings it wins ~0%**: its Edax results were memorized lines, not playing
+strength (see "Memorization finding" below). Measure progress from random openings.
 
 **Current direction (2026-09):** retrain from scratch on the new machine/stack, possibly with
 changes to the CNN, reusing the BC dataset. The previous best model is kept as a benchmark.
@@ -99,6 +101,10 @@ Options:
   which replays the same game every time and gives misleading win rates (0% or 100%); always use
   `-d` for win-rate measurements
 - `-v/--verbose`: display game details
+- `--random-opening N`: start each game with N random plies (both sides), then the model plays
+  BLACK. `--seed S` makes the openings reproducible so different models face the same positions.
+  **Use this for headline win rates** (e.g. `--random-opening 8 --seed 42`); standard-opening
+  results mostly measure memorized lines against Edax (see Training History)
 
 The model always plays BLACK. Model-vs-Model (`-o Model -r ...`) is color-balanced.
 
@@ -217,6 +223,40 @@ Observations from the log:
 - Edax-8 stayed at 0-1% through every block, while Edax-9 reached ~23%: an even-depth or specific
   tactical gap rather than a smooth strength limit. Undiagnosed; `status_summary_2026-09-23.md`
   lists hypotheses and a diagnosis plan (verbose non-deterministic games vs Edax-8).
+  Superseded by the memorization finding below.
+
+### Memorization finding (2026-09-27)
+Edax at a fixed depth plays (nearly) deterministically from the standard opening, and RL against it
+learned to replay winning lines rather than to play well. From randomized openings
+(`sb-play.py --random-opening N --seed 42`, 100-200 games, `-d`):
+
+| Model | Edax | Standard opening | 2-ply random | 8-ply random |
+|---|---|---|---|---|
+| `edax_bc_pretrained` (previous best, ~11M RL) | 6 | 94% | - | 0% |
+| `edax_bc_pretrained` | 4 / 2 | 94% (log) / - | - | 0% / 5% |
+| CNN + planes, 2M RL (`planes_aug_bc10_rl2m`) | 4 | 96% | 7% | 0.5% |
+| ResNet 64x6, 2M RL (`resnet64x6_bc10_rl2m`) | 4 | 73% | 9% | 0.5% |
+| CNN + planes, BC only (no RL) | 2 | 6% | - | 4% |
+
+One random move per side already breaks it, and a BC-only model (nothing memorized) scores about the
+same from random openings as from the standard one, so the random positions are fair. This explains
+the 0% "cliff" at every depth not yet in the curriculum and the Edax-8 wall. Consequences: RL
+against Edax needs varied starting positions, and evaluation should use random openings.
+
+### Retrain (2026-09, branches `cnn-input-planes`, `resnet-policy`)
+BC on `combined_bc_dataset.pkl`, 10 epochs, lr 1e-4, batch 256 (CSVs `*_bc10_training.csv`):
+
+| Model | Params | Val loss (ep 10) | Val acc (best) | vs Edax-1 / Edax-2, BC only, 8-ply random openings, 200 games |
+|---|---|---|---|---|
+| Old CNN, raw board (old run) | 4.8M | 1.319 (min 1.270 @ ep 6, overfits) | 56.9% | - |
+| CNN + planes, no augmentation | 4.8M | 1.278 (min 1.202 @ ep 5, overfits) | 58.0% | - |
+| CNN + planes + augmentation | 4.8M | 1.155 | 58.1% | 16.5% / 3.5% |
+| ResNet 64x6 + augmentation | 0.45M | 1.117 | 58.7% | 17.5% / 1.5% |
+| **ResNet 128x8 + augmentation** | 2.4M | **1.043** (not overfitting) | **60.7%** | **29.5% / 7.0%** |
+
+ResNet 128x8 (`resnet128x8_bc10_bconly_CNN_test`) is the best starting point. The RL runs on the CNN
+and 64x6 (Edax 1/2/3 then 2/3/4, 1M steps each, lr 1e-5) reached 96%/73% vs Edax-4 from the standard
+opening, but that was memorization (table above).
 
 ### Hyperparameters (`get_model()` in util/util.py)
 ```python
@@ -253,8 +293,8 @@ Device selection is handled in `sb-train.py` and passed to model creation.
 
 Run the suite with `./run_tests.sh` (all tests) or `./run_tests.sh <name>` for one group
 (`environment`, `scenarios`, `edge_cases`, `training`, `integration`, `bc`, `focused`,
-`training_issues`, `step`, `lr`, `features`, `resnet`, ...). The script sets `PYTHONPATH` to the
-project root and runs through `uv run`. All 96 tests in `tests/` are part of the runner and pass. `test_edax_opponent.py`
+`training_issues`, `step`, `lr`, `features`, `resnet`, `play`, ...). The script sets `PYTHONPATH`
+to the project root and runs through `uv run`. All 100 tests in `tests/` are part of the runner and pass. `test_edax_opponent.py`
 in the project root is a separate script that needs the Edax server running.
 
 Env behaviors worth knowing when writing tests:

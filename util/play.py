@@ -1,13 +1,35 @@
-from util.util import get_move_db, render, get_action, mask_fn, get_move_notation, count_players
+from util.util import get_move_db, render, get_action, mask_fn, get_move_notation, count_players, BLACK
 import numpy as np
 import torch
 
-def play(model, num_games, opponent, deterministic, verbose):
+def random_opening(env, plies, rng):
+    """Play `plies` random legal moves (both sides, passes handled) from the current
+    position, then continue randomly until it is BLACK's turn with a legal move.
+
+    Used to evaluate from varied starting positions, so a model can't rely on
+    replaying lines memorized against a deterministic opponent. Mutates env.board and
+    env.player. Returns False if the game ended during the opening.
+    """
+    board = env.board
+    played = 0
+    while played < plies or env.player != BLACK or not env.has_valid(board, BLACK):
+        if env.get_winner(board) is not None:
+            return False
+        if not env.has_valid(board, env.player):
+            env.player = -env.player
+            continue
+        a = int(rng.choice(env._all_valid_actions(board, env.player)))
+        env.get_next_state(board, (0, a // 8, a % 8))  # flips env.player
+        played += 1
+    return True
+
+def play(model, num_games, opponent, deterministic, verbose, random_opening_plies=0, seed=None):
     vec_env = model.get_env()
     env = vec_env.envs[0].unwrapped
     # obs = vec_env.reset()
     obs, _ = env.reset()
     black_wins = 0
+    rng = np.random.default_rng(seed)
 
     if verbose:
         np.set_printoptions(precision=3, suppress=True)
@@ -16,6 +38,9 @@ def play(model, num_games, opponent, deterministic, verbose):
     for i in range(num_games):
         # Reset environment for each new game
         obs, _ = env.reset()
+        if random_opening_plies:
+            while not random_opening(env, random_opening_plies, rng):
+                obs, _ = env.reset()
         moves = []
         term = False
 

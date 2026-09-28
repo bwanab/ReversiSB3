@@ -16,13 +16,16 @@ def play_games(file,
                opponentName="Random", 
                deterministic=False, 
                opponent_model = None,
-               depth=2):
+               depth=2,
+               random_opening=0,
+               seed=None):
     env = build_reversi(opponent=opponentName, verbose=verbose, opponent_model=opponent_model, depth=depth)
     #opponent = get_opponent(opponentName, file=file, env=env)
 
     model = MaskablePPO.load(file, env=env)
     # model.policy = MaskableActorCriticPolicy.load(file + '_policy.zip')
-    black_wins = play(model, num_games, None, deterministic, verbose)
+    black_wins = play(model, num_games, None, deterministic, verbose,
+                      random_opening_plies=random_opening, seed=seed)
     return black_wins
 
 import argparse
@@ -39,6 +42,10 @@ if __name__ == '__main__':
     parser.add_argument("-d", "--non_deterministic", action='store_true')
     parser.add_argument("-p", "--depth", default="2", help="depth of min/max search when RAI is opponent")
     parser.add_argument("-v", "--verbose", action='store_true')
+    parser.add_argument("--random-opening", type=int, default=0,
+                        help="start each game with this many random plies (both sides) to vary positions")
+    parser.add_argument("--seed", type=int, default=None,
+                        help="seed for --random-opening, so different models face the same openings")
     args = parser.parse_args()
 
     import time
@@ -71,7 +78,9 @@ if __name__ == '__main__':
                                 opponentName=args.opponent,
                                 deterministic=deterministic, 
                                 opponent_model=args.opp_model,
-                                depth=depth)
+                                depth=depth,
+                                random_opening=args.random_opening,
+                                seed=args.seed)
         print(f"Black wins: {100 * black_wins / n_games}%")
 
     end = time.time()
