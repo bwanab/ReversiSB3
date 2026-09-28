@@ -105,6 +105,11 @@ def evaluate_model(model, env, opponent_type, num_games=100, rai_depth=1, verbos
     return win_rate
 
 
+def fmt_rate(rate):
+    """CSV cell for a win rate; empty when the evaluation was skipped."""
+    return "" if rate is None else f"{rate:.2f}"
+
+
 def bc_train(
     dataset_file,
     model_name,
@@ -121,7 +126,8 @@ def bc_train(
     arch="cnn",
     channels=64,
     blocks=6,
-    lr_schedule="constant"
+    lr_schedule="constant",
+    eval_games=0
 ):
     """
     Train model using behavioral cloning on RAI dataset.
@@ -157,6 +163,8 @@ def bc_train(
         ResNet trunk width and number of residual blocks
     lr_schedule : str
         'constant', or 'cosine' (decay from learning_rate to 0 over all epochs, per batch)
+    eval_games : int
+        Games per epoch vs Random and vs RAI-1 (0 = skip; both saturate near 100% and add time)
 
     Returns
     -------
@@ -397,9 +405,11 @@ def bc_train(
         val_acc = val_correct / val_total
 
         # Evaluate against Random and RAI-1
-        print(f"\nEpoch {epoch+1}/{epochs} - Evaluating...")
-        random_win_rate = evaluate_model(model, env, 'Random', num_games=100)
-        rai1_win_rate = evaluate_model(model, env, 'RAI', num_games=100, rai_depth=1)
+        random_win_rate = rai1_win_rate = None
+        if eval_games > 0:
+            print(f"\nEpoch {epoch+1}/{epochs} - Evaluating...")
+            random_win_rate = evaluate_model(model, env, 'Random', num_games=eval_games)
+            rai1_win_rate = evaluate_model(model, env, 'RAI', num_games=eval_games, rai_depth=1)
 
         # Record history
         history['train_loss'].append(train_loss)
@@ -415,8 +425,9 @@ def bc_train(
         print(f"\nEpoch {epoch+1}/{epochs} Summary:")
         print(f"  Train Policy Loss: {train_loss:.4f}, Train Value Loss: {train_value_loss:.4f}, Train Acc: {100*train_acc:.2f}%")
         print(f"  Val Policy Loss:   {val_loss:.4f}, Val Value Loss:   {val_value_loss:.4f}, Val Acc:   {100*val_acc:.2f}%")
-        print(f"  Random Win Rate:   {100*random_win_rate:.1f}% ({random_win_rate*100:.0f}/100)")
-        print(f"  RAI-1 Win Rate:    {100*rai1_win_rate:.1f}% ({rai1_win_rate*100:.0f}/100)")
+        if eval_games > 0:
+            print(f"  Random Win Rate:   {100*random_win_rate:.1f}% ({random_win_rate*eval_games:.0f}/{eval_games})")
+            print(f"  RAI-1 Win Rate:    {100*rai1_win_rate:.1f}% ({rai1_win_rate*eval_games:.0f}/{eval_games})")
         print(f"  Learning rate now: {optimizer.param_groups[0]['lr']:.2e}")
         print()
 
@@ -452,8 +463,8 @@ def bc_train(
                 f"{history['val_loss'][i]:.4f}",
                 f"{history['val_acc'][i]:.4f}",
                 f"{history['val_value_loss'][i]:.4f}",
-                f"{history['random_wins'][i]:.2f}",
-                f"{history['rai1_wins'][i]:.2f}"
+                fmt_rate(history['random_wins'][i]),
+                fmt_rate(history['rai1_wins'][i])
             ])
 
     print("="*60)
@@ -461,8 +472,9 @@ def bc_train(
     print("="*60)
     print(f"Final Train Accuracy: {100*history['train_acc'][-1]:.2f}%")
     print(f"Final Val Accuracy:   {100*history['val_acc'][-1]:.2f}%")
-    print(f"Final Random Win Rate: {100*history['random_wins'][-1]:.1f}%")
-    print(f"Final RAI-1 Win Rate:  {100*history['rai1_wins'][-1]:.1f}%")
+    if eval_games > 0:
+        print(f"Final Random Win Rate: {100*history['random_wins'][-1]:.1f}%")
+        print(f"Final RAI-1 Win Rate:  {100*history['rai1_wins'][-1]:.1f}%")
     print(f"Model saved to: {model_path}")
     print(f"Training history saved to: {history_path}")
     print("="*60)
@@ -508,6 +520,8 @@ def main():
                         help='ResNet residual blocks')
     parser.add_argument('--lr-schedule', choices=['constant', 'cosine'], default='constant',
                         help='cosine: decay the learning rate to 0 over all epochs')
+    parser.add_argument('--eval-games', type=int, default=0,
+                        help='games per epoch vs Random and RAI-1 (0 = skip; they saturate near 100%%)')
 
     args = parser.parse_args()
 
@@ -532,7 +546,8 @@ def main():
         arch=args.arch,
         channels=args.channels,
         blocks=args.blocks,
-        lr_schedule=args.lr_schedule
+        lr_schedule=args.lr_schedule,
+        eval_games=args.eval_games
     )
 
 
