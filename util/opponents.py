@@ -147,7 +147,10 @@ class EdaxOpponent(Opponent):
         pass
 
 opponent_map = {}
-def get_opponent(s, **kwargs):
+def get_opponent(s, reload=False, **kwargs):
+    """Create an opponent. Model opponents are cached per model file; pass reload=True
+    when the file has been overwritten (e.g. a refreshed self-play opponent) so the new
+    weights are loaded instead of the cached ones."""
     if s == "Random":
         opponent = RandomOpponent()
     elif s == "RAI":
@@ -158,7 +161,7 @@ def get_opponent(s, **kwargs):
         opponent = Human()
     else:
         file = kwargs.get("opponent_model")
-        opponent = opponent_map.get(file)
+        opponent = None if reload else opponent_map.get(file)
         if opponent is None:
             opponent = ModelOpponent(**kwargs)
             opponent_map[file] = opponent

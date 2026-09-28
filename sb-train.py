@@ -147,7 +147,7 @@ def train_selfplay_mixed(model, env, args, file, checkpoint_cb, net_width, times
         # Train against self (frozen opponent)
         if block_selfplay > 0:
             print(f"🤖 Self-play training: {block_selfplay:,} timesteps")
-            env.unwrapped.set_opponent("Model", temp_opponent)
+            env.unwrapped.set_opponent("Model", temp_opponent, reload=True)  # file was just overwritten
             learn_helper(PlayCallback, args, file, checkpoint_cb, env, net_width, model, block_selfplay)
         
         # Train against random
@@ -226,7 +226,7 @@ def train_mixed_three_way(model, env, args, file, checkpoint_cb, net_width, time
         # Train against self (frozen opponent)
         if block_selfplay > 0:
             print(f"🤖 Self-play training: {block_selfplay:,} timesteps")
-            env.unwrapped.set_opponent("Model", temp_opponent)
+            env.unwrapped.set_opponent("Model", temp_opponent, reload=True)  # file was just overwritten
             learn_helper(PlayCallback, args, file, checkpoint_cb, env, net_width, model, block_selfplay)
 
         # Train against random
@@ -376,7 +376,7 @@ def train_sequential(model, env, args, file, checkpoint_cb, net_width, random_ti
                 print(f"🤖 Self-play training: {block_selfplay:,} timesteps")
                 progress = (timesteps_done + phase2_timesteps_done) / total_timesteps
                 current_lr = args.start_lr - (args.start_lr - args.end_lr) * progress
-                env.unwrapped.set_opponent("Model", temp_opponent)
+                env.unwrapped.set_opponent("Model", temp_opponent, reload=True)  # file was just overwritten
                 learn_helper(PlayCallback, args, file, checkpoint_cb, env, net_width, model, block_selfplay, lr=current_lr)
                 phase2_timesteps_done += block_selfplay
 

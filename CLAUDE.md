@@ -224,7 +224,11 @@ Final results (step 25):
 
 Observations from the log:
 - Self-play blocks right after curriculum blocks often dropped Edax win rates (e.g. step 4 -> 5:
-  Edax-3 75% -> 1%); gains held better once LR was below ~1e-6.
+  Edax-3 75% -> 1%); gains held better once LR was below ~1e-6. (Those Edax numbers were memorized
+  lines, see below. Also, until 2026-09-28 self-play never refreshed its opponent within a run:
+  `get_opponent()` caches model opponents per file path and the temp opponent file is overwritten in
+  place, so every self-play block played a frozen copy from the start of the run. Fixed with
+  `set_opponent(..., reload=True)`.)
 - Win rates at a depth often collapsed to ~0% when that depth entered the curriculum, then recovered
   over later blocks (e.g. Edax-6 was 0% for steps 9-13 before reaching 97%).
 - Edax-8 stayed at 0-1% through every block, while Edax-9 reached ~23%: an even-depth or specific
@@ -300,9 +304,9 @@ Device selection is handled in `sb-train.py` and passed to model creation.
 
 Run the suite with `./run_tests.sh` (all tests) or `./run_tests.sh <name>` for one group
 (`environment`, `scenarios`, `edge_cases`, `training`, `integration`, `bc`, `focused`,
-`training_issues`, `step`, `lr`, `features`, `resnet`, `play`, `starts`, ...). The script sets
-`PYTHONPATH` to the project root and runs through `uv run`. All 108 tests in `tests/` are part of the
-runner and pass. `test_edax_opponent.py`
+`training_issues`, `step`, `lr`, `features`, `resnet`, `play`, `starts`, `refresh`, ...). The script
+sets `PYTHONPATH` to the project root and runs through `uv run`. All 110 tests in `tests/` are part of
+the runner and pass. `test_edax_opponent.py`
 in the project root is a separate script that needs the Edax server running.
 
 Env behaviors worth knowing when writing tests:

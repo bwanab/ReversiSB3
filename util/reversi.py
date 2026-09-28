@@ -68,8 +68,8 @@ class ReversiEnvCNN(gym.Env):
             np.asarray(start_positions, dtype=np.int8).reshape(-1, *self.board.shape)
         self.standard_start_prob = standard_start_prob
 
-    def set_opponent(self, opponent, opponent_model, depth=2):
-        self.opponent = get_opponent(opponent, opponent_model=opponent_model, env=self, depth=depth)
+    def set_opponent(self, opponent, opponent_model, depth=2, reload=False):
+        self.opponent = get_opponent(opponent, opponent_model=opponent_model, env=self, depth=depth, reload=reload)
     
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed, options=options)
