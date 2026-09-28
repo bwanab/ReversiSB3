@@ -57,5 +57,43 @@ class TestRandomOpening(unittest.TestCase):
             self.assertEqual(self.env.player, BLACK)
 
 
+class TestPairedStarts(unittest.TestCase):
+    """sb-play's model-vs-model mode relies on play() giving the same sequence of starting
+    positions for a given seed, whatever the models do, so the color-swapped halves pair up."""
+
+    def starts_seen(self, model_seed, **play_kwargs):
+        import tempfile, torch
+        from util.util import get_model
+        from util.play import play
+        from tests.test_start_positions import sample_positions
+        torch.manual_seed(model_seed)
+        with tempfile.TemporaryDirectory() as d:
+            env = ReversiEnvCNN(opponent="Random", start_positions=sample_positions(n_games=5))
+            model = get_model(os.path.join(d, "m"), env, model_type="resnet", channels=8, blocks=1)
+            inner = model.get_env().envs[0].unwrapped
+            seen, original_reset = [], inner.reset
+
+            def recording_reset(**kwargs):
+                obs, info = original_reset(**kwargs)
+                seen.append(inner.board.copy())
+                return obs, info
+            inner.reset = recording_reset
+            wins, draws = play(model, 6, None, False, False, return_draws=True, **play_kwargs)
+            self.assertLessEqual(wins + draws, 6)
+            return seen
+
+    def test_same_seed_same_start_sequence(self):
+        a = self.starts_seen(model_seed=1, seed=11)
+        b = self.starts_seen(model_seed=2, seed=11)  # different model, different games
+        self.assertEqual(len(a), len(b))
+        for x, y in zip(a, b):
+            np.testing.assert_array_equal(x, y)
+
+    def test_different_seed_different_starts(self):
+        a = self.starts_seen(model_seed=1, seed=11)
+        b = self.starts_seen(model_seed=1, seed=12)
+        self.assertFalse(all(np.array_equal(x, y) for x, y in zip(a, b)))
+
+
 if __name__ == '__main__':
     unittest.main()

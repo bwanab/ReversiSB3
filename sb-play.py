@@ -26,9 +26,8 @@ def play_games(file,
 
     model = MaskablePPO.load(file, env=env)
     # model.policy = MaskableActorCriticPolicy.load(file + '_policy.zip')
-    black_wins = play(model, num_games, None, deterministic, verbose,
-                      random_opening_plies=random_opening, seed=seed)
-    return black_wins
+    return play(model, num_games, None, deterministic, verbose,
+                random_opening_plies=random_opening, seed=seed, return_draws=True)
 
 import argparse
 if __name__ == '__main__':
@@ -60,24 +59,34 @@ if __name__ == '__main__':
     start = time.time()
     deterministic = not bool(args.non_deterministic)
     if args.opponent == "Model":
-        model_wins = play_games("models/" + args.model,
-                                n_games // 2, 
-                                verbose=bool(args.verbose), 
+        # Each half plays the same sequence of starting positions (same seed) with the colors
+        # swapped, so opening luck largely cancels out.
+        half = n_games // 2
+        opening = dict(random_opening=args.random_opening, seed=args.seed, start_positions=args.start_positions)
+        wins_as_black, draws1 = play_games("models/" + args.model,
+                                half,
+                                verbose=bool(args.verbose),
                                 opponentName=args.opponent,
-                                deterministic=deterministic, 
+                                deterministic=deterministic,
                                 opponent_model=args.opp_model,
-                                depth=depth)
-        opponent_wins = play_games(args.opp_model,
-                                n_games // 2, 
-                                verbose=bool(args.verbose), 
+                                depth=depth, **opening)
+        opp_wins_as_black, draws2 = play_games(args.opp_model,
+                                half,
+                                verbose=bool(args.verbose),
                                 opponentName=args.opponent,
-                                deterministic=deterministic, 
+                                deterministic=deterministic,
                                 opponent_model="models/" + args.model,
-                                depth=depth)
-        print(f"Model wins: {model_wins}, Opponent wins: {opponent_wins}, Model advantage: {(n_games // 2 + model_wins - opponent_wins) / n_games}%")
-        
+                                depth=depth, **opening)
+        wins_as_white = half - opp_wins_as_black - draws2
+        draws = draws1 + draws2
+        wins = wins_as_black + wins_as_white
+        score = (wins + 0.5 * draws) / (2 * half)
+        print(f"Model: {wins} wins ({wins_as_black} as BLACK, {wins_as_white} as WHITE), "
+              f"{2 * half - wins - draws} losses, {draws} draws; score {100 * score:.1f}% "
+              f"(draws count 1/2; 50% = even)")
+
     else:
-        black_wins = play_games("models/" + args.model,
+        black_wins, draws = play_games("models/" + args.model,
                                 n_games, 
                                 verbose=bool(args.verbose), 
                                 opponentName=args.opponent,

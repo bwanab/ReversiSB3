@@ -27,7 +27,7 @@ def run_all_tests():
     from test_lr_update import TestLearningRateUpdates
     from test_board_features import TestBoardFeatures
     from test_resnet_policy import TestResNetPolicy
-    from test_play import TestRandomOpening
+    from test_play import TestRandomOpening, TestPairedStarts
     from test_start_positions import TestStartPositions
     from test_opponent_refresh import TestOpponentRefresh
     from test_openings import TestOpenings
@@ -54,6 +54,7 @@ def run_all_tests():
         TestBoardFeatures,
         TestResNetPolicy,
         TestRandomOpening,
+        TestPairedStarts,
         TestStartPositions,
         TestOpponentRefresh,
         TestOpenings

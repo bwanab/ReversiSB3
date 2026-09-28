@@ -23,12 +23,16 @@ def random_opening(env, plies, rng):
         played += 1
     return True
 
-def play(model, num_games, opponent, deterministic, verbose, random_opening_plies=0, seed=None):
+def play(model, num_games, opponent, deterministic, verbose, random_opening_plies=0, seed=None,
+         return_draws=False):
+    """Play num_games with the model as BLACK against the env's opponent. Returns BLACK's wins,
+    or (wins, draws) with return_draws=True."""
     vec_env = model.get_env()
     env = vec_env.envs[0].unwrapped
     # obs = vec_env.reset()
     obs, _ = env.reset(seed=seed)  # seeds the env's start-position sampling, if it has any
     black_wins = 0
+    draws = 0
     rng = np.random.default_rng(seed)
 
     if verbose:
@@ -79,4 +83,5 @@ def play(model, num_games, opponent, deterministic, verbose, random_opening_plie
                         if m == moves_str[:len(m)]:
                             print(m, desc)
                 black_wins += black_score > white_score
-    return black_wins
+                draws += black_score == white_score
+    return (black_wins, draws) if return_draws else black_wins

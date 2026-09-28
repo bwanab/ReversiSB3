@@ -120,7 +120,11 @@ Options:
 `opening_agreement.py -m MODEL ...` reports how often a model's top move is a `moves.txt` book
 continuation (and its probability mass on book moves) over the 412 book positions after 4+ plies.
 
-The model always plays BLACK. Model-vs-Model (`-o Model -r ...`) is color-balanced.
+The model always plays BLACK. Model-vs-Model (`-o Model -r models/<other>`) is color-balanced and
+takes `--random-opening`/`--start-positions`/`--seed` too: both halves see the same starting
+positions with colors swapped, so opening luck cancels out. It prints wins as BLACK/WHITE, draws,
+and a score (draws = 1/2; 50% = even). Head-to-heads are sensitive for close models but can be
+biased when one model trained against the other (e.g. self-play vs its starting model).
 
 ### Behavioral Cloning (BC) Training
 
@@ -314,7 +318,7 @@ Device selection is handled in `sb-train.py` and passed to model creation.
 Run the suite with `./run_tests.sh` (all tests) or `./run_tests.sh <name>` for one group
 (`environment`, `scenarios`, `edge_cases`, `training`, `integration`, `bc`, `focused`,
 `training_issues`, `step`, `lr`, `features`, `resnet`, `play`, `starts`, `refresh`, `openings`, ...).
-The script sets `PYTHONPATH` to the project root and runs through `uv run`. All 116 tests in `tests/`
+The script sets `PYTHONPATH` to the project root and runs through `uv run`. All 118 tests in `tests/`
 are part of the runner and pass. `test_edax_opponent.py`
 in the project root is a separate script that needs the Edax server running.
 
