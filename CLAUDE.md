@@ -85,7 +85,7 @@ uv run python sb-train.py --mode selfplay -m MODEL_NAME --random-ratio 0.1 \
 # Self-play + Edax + Random (60/30/10), varied starts
 uv run python sb-train.py --mode selfplay-edax -m MODEL_NAME --timesteps 1000000 \
     --selfplay-ratio 0.6 --edax-depths 1,2,3 --edax-ratios 0.1,0.1,0.1 --random-ratio 0.1 \
-    --refresh-interval 100000 -lr 1e-5 --start-positions start_positions.npy --standard-start-ratio 0.05
+    --refresh-interval 100000 -lr 1e-5 --start-positions start_positions.npy
 
 # Mixed: self-play / RAI-1 / remainder random
 uv run python sb-train.py --mode mixed -m MODEL_NAME --timesteps 1000000 \
@@ -93,8 +93,10 @@ uv run python sb-train.py --mode mixed -m MODEL_NAME --timesteps 1000000 \
 ```
 **Varied starts (use for all Edax training):** `--start-positions start_positions.npy` starts each
 game from a random one of ~119k distinct real-game positions (8-20 stones, BLACK to move) instead
-of the standard opening, so RL can't just memorize lines against Edax; `--standard-start-ratio`
-(e.g. 0.05) keeps some standard-opening games. Build the file (git-ignored) with
+of the standard opening, so RL can't just memorize lines against Edax. **Leave
+`--standard-start-ratio` at 0 whenever Edax is an opponent**: even 5% standard-opening games
+(~1,500 per 1M steps) let RL relearn lines (a curriculum run reached 40% vs Edax-3 from the standard
+opening but 3.5% from random openings). Self-play doesn't leak this way. Build the file (git-ignored) with
 `uv run python make_start_positions.py` (from `combined_bc_dataset.pkl`; `--min-stones`/`--max-stones`).
 The env option is `ReversiEnvCNN(start_positions=..., standard_start_prob=...)`.
 
@@ -286,9 +288,35 @@ BC on `combined_bc_dataset.pkl`, 10 epochs, lr 1e-4, batch 256 (CSVs `*_bc10_tra
 | ResNet 64x6 + augmentation | 0.45M | 1.117 | 58.7% | 17.5% / 1.5% |
 | **ResNet 128x8 + augmentation** | 2.4M | **1.043** (not overfitting) | **60.7%** | **29.5% / 7.0%** |
 
-ResNet 128x8 (`resnet128x8_bc10_bconly_CNN_test`) is the best starting point. The RL runs on the CNN
-and 64x6 (Edax 1/2/3 then 2/3/4, 1M steps each, lr 1e-5) reached 96%/73% vs Edax-4 from the standard
-opening, but that was memorization (table above).
+ResNet 128x8 is the best architecture. The RL runs on the CNN and 64x6 (Edax 1/2/3 then 2/3/4, 1M
+steps each, lr 1e-5) reached 96%/73% vs Edax-4 from the standard opening, but that was memorization
+(table above).
+
+**BC recipe (decision A, 2026-09-28):** `resnet128x8_bc20cos_bconly` (20 epochs, `--lr-schedule cosine`,
+val loss 1.003, acc 61.7%) vs the 10-epoch model: tie vs Edax 1/2 (random and named openings), but
+~55.7% in 800 paired head-to-head games and book agreement 87% vs 85%. It is the base for future RL.
+
+**RL recipe (decision B, 2026-09-28), all with varied starts, win % vs Edax-1/2/3/4 from 8-ply random
+openings (200 games) and Edax-1/2 from named openings (300 games):**
+
+| Model (ResNet 128x8, 10-epoch BC) | Random 1 / 2 / 3 / 4 | Named 1 / 2 | Standard 2 / 3 |
+|---|---|---|---|
+| BC only | 29.5 / 7.0 / - / - | 31.3 / 7.7 | - |
+| + 1M Edax 1/2/3 curriculum (`_vs1m`) | 40.5 / 8.0 / 3.5 / 1.5 | 44.7 / 13.0 | 21 / 4 |
+| `_vs1m` + 1M self-play (`_vs1m_sp1m`) | 34.0 / 10.5 / 3.0 / 1.0 | 41.3 / 12.7 | 14 / 4 |
+| `_vs1m` + 1M more curriculum (`_vs1m_cur1m`) | 35.0 / 9.5 / 3.5 / 0.0 | 44.0 / 8.7 | **38 / 40** |
+
+The first 1M RL steps gave real gains; the second million gave nothing with either recipe (ties within
+noise), and the curriculum run relearned lines via its 5% standard-opening games (last column). Plan: a
+mixed `selfplay-edax` recipe on `resnet128x8_bc20cos` with no standard starts, once rollouts are faster
+(~30k games per 1M steps is too little experience).
+
+**Rollout speed (profiled 2026-09-29, 128x8 on MPS):** vs Edax-2 111 steps/s, self-play 97 steps/s
+after vectorizing the legal-move planes and disabling torch.distributions argument checks (were 101 and
+72). PPO updates are only ~10% of the time. What remains is mostly fixed MPS latency per forward call
+(~4.5 ms at batch 1, about the same at batch 32) plus Python game logic (~17%); running many games per
+forward call (vectorized envs) is the next step. CPU inference is faster at batch 1 (2.2 ms) but PPO
+updates are ~11x slower on CPU.
 
 ### Hyperparameters (`get_model()` in util/util.py)
 ```python
