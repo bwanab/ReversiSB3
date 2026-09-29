@@ -8,7 +8,6 @@ BC datasets store (WHITE's positions are flipped).
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 
 N_PLANES = 5  # own, opponent, empty, own legal moves, opponent legal moves
 
@@ -16,10 +15,28 @@ N_PLANES = 5  # own, opponent, empty, own legal moves, opponent legal moves
 DIRECTIONS = [(dr, dc) for dr in (-1, 0, 1) for dc in (-1, 0, 1) if (dr, dc) != (0, 0)]
 
 
-def _shift(t, dr, dc):
-    """Shift an (N, 8, 8) tensor by (dr, dc): out[:, r, c] = t[:, r - dr, c - dc], zero-filled."""
-    p = F.pad(t, (1, 1, 1, 1))
-    return p[:, 1 - dr:9 - dr, 1 - dc:9 - dc]
+def _neighbor_table():
+    """SRC[d, s] = the square whose value moves onto square s when shifting one step in
+    direction d (i.e. the square at s - d), or 64 (an always-zero pad column) if that is
+    off the board."""
+    src = np.full((len(DIRECTIONS), 64), 64, dtype=np.int64)
+    for d, (dr, dc) in enumerate(DIRECTIONS):
+        for r in range(8):
+            for c in range(8):
+                rr, cc = r - dr, c - dc
+                if 0 <= rr < 8 and 0 <= cc < 8:
+                    src[d, r * 8 + c] = rr * 8 + cc
+    return src
+
+
+_SRC = _neighbor_table()
+_SRC_ON = {}  # per-device copies
+
+
+def _src(device):
+    if device not in _SRC_ON:
+        _SRC_ON[device] = torch.as_tensor(_SRC, device=device)
+    return _SRC_ON[device]
 
 
 def legal_moves(own, opp):
@@ -28,15 +45,27 @@ def legal_moves(own, opp):
     own, opp: (N, 8, 8) float tensors of 0/1. Returns an (N, 8, 8) 0/1 tensor.
     For each direction, x marks opponent stones in a contiguous run starting next to
     one of our stones; the empty square just past the end of a run is a legal move.
+    All 8 directions are handled together: each step shifts the (N, 8 directions, 64)
+    tensor by indexing through the precomputed neighbor table, so a call is a couple of
+    dozen tensor ops however many directions there are (cheap for single positions).
     """
-    empty = 1 - own - opp
-    moves = torch.zeros_like(own)
-    for dr, dc in DIRECTIONS:
-        x = _shift(own, dr, dc) * opp
-        for _ in range(5):  # a run can be at most 6 opponent stones long
-            x = torch.maximum(x, _shift(x, dr, dc) * opp)
-        moves = torch.maximum(moves, _shift(x, dr, dc) * empty)
-    return moves
+    n = own.shape[0]
+    src = _src(own.device)
+    dirs = torch.arange(len(DIRECTIONS), device=own.device)[:, None]
+    own_f, opp_f = own.reshape(n, 64), opp.reshape(n, 64)
+    empty = 1 - own_f - opp_f
+    zero = own_f.new_zeros(n, 1)
+
+    def shift(x):
+        # x: (N, 8, 64) -> each direction's plane shifted one step along that direction
+        padded = torch.cat([x, zero[:, None, :].expand(n, x.shape[1], 1)], dim=2)
+        return padded[:, dirs, src]
+
+    x = torch.cat([own_f, zero], dim=1)[:, src] * opp_f[:, None, :]  # (N, 8, 64)
+    for _ in range(5):  # a run can be at most 6 opponent stones long
+        x = torch.maximum(x, shift(x) * opp_f[:, None, :])
+    moves = (shift(x) * empty[:, None, :]).amax(dim=1)
+    return moves.reshape(n, 8, 8)
 
 
 def board_to_planes(board):

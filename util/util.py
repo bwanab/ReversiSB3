@@ -18,6 +18,11 @@ from util.reversi_resnet import ReversiResNetPolicy
 
 import torch as th
 
+# torch.distributions checks its arguments (e.g. that probabilities form a simplex) every time a
+# distribution is created, which forces a GPU->CPU sync; SB3 builds several per move. Profiling
+# showed this was ~27% of RL training time. The checks only catch programming errors.
+th.distributions.Distribution.set_default_validate_args(False)
+
 EMPTY = 0
 BLACK = 1
 WHITE = -1
