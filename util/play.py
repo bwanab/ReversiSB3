@@ -24,11 +24,11 @@ def random_opening(env, plies, rng):
     return True
 
 def play(model, num_games, opponent, deterministic, verbose, random_opening_plies=0, seed=None,
-         return_draws=False):
+         return_draws=False, env=None):
     """Play num_games with the model as BLACK against the env's opponent. Returns BLACK's wins,
-    or (wins, draws) with return_draws=True."""
-    vec_env = model.get_env()
-    env = vec_env.envs[0].unwrapped
+    or (wins, draws) with return_draws=True. Games are played on `env` if given, otherwise on
+    the model's own (single) env."""
+    env = env.unwrapped if env is not None else model.get_env().envs[0].unwrapped
     # obs = vec_env.reset()
     obs, _ = env.reset(seed=seed)  # seeds the env's start-position sampling, if it has any
     black_wins = 0

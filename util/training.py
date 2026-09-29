@@ -1,6 +1,17 @@
 """
-Helpers for sb-train.py's opponent mixes.
+Helpers for sb-train.py's opponent mixes and (vectorized) training envs.
 """
+
+from stable_baselines3.common.vec_env import VecEnv
+
+
+def set_opponent(env, opponent, opponent_model, depth=2, reload=False):
+    """Set the opponent in the training env, or in every env of an in-process vectorized env
+    (DummyVecEnv). A reloaded model opponent is loaded once and then shared through
+    get_opponent's cache, so all envs play the same network."""
+    envs = [e.unwrapped for e in env.envs] if isinstance(env, VecEnv) else [env.unwrapped]
+    for i, e in enumerate(envs):
+        e.set_opponent(opponent, opponent_model, depth=depth, reload=reload and i == 0)
 
 
 def parse_edax_mix(depths, ratios):

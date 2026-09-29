@@ -3,7 +3,7 @@ from util.reversi import build_reversi, ReversiEnvCNN
 from util.util import mask_fn, get_model, set_learning_rate
 from util.play import play
 from util.opponents import get_opponent, RandomOpponent
-from util.training import parse_edax_mix, mixed_block_plan
+from util.training import parse_edax_mix, mixed_block_plan, set_opponent
 
 import numpy as np
 import os.path
@@ -11,6 +11,7 @@ from time import time
 
 import torch
 from sb3_contrib.common.wrappers import ActionMasker
+from stable_baselines3.common.vec_env import DummyVecEnv, VecEnv
 
 from stable_baselines3.common.logger import configure
 from stable_baselines3.common.callbacks import BaseCallback, EveryNTimesteps, CheckpointCallback
@@ -66,10 +67,12 @@ class FullRoundTripCallback(BaseCallback):
 
 
 class PlayCallback(BaseCallback):
-    def __init__(self, model, file, episodes = 100, opponent = RandomOpponent, verbose: bool = False):
+    """Every call: save the model, and if episodes > 0 play that many games (sampled moves) on
+    a separate eval env and log BLACK's wins as black_wins."""
+    def __init__(self, model, file, episodes=0, eval_env=None, verbose: bool = False):
         self.episodes = episodes
         self.verbose = verbose
-        self.opponent = opponent
+        self.eval_env = eval_env
         self.model = model
         self.file = file
         # self.logger is BaseCallback's read-only property (the model's logger), so black_wins
@@ -77,13 +80,23 @@ class PlayCallback(BaseCallback):
         super(PlayCallback, self).__init__(verbose)
 
     def _on_step(self) -> bool:
-        black_wins = play(self.model, self.episodes, self.opponent, True, self.verbose)
-        self.logger.record(key="black_wins", value=black_wins)
+        if self.episodes > 0:
+            black_wins = play(self.model, self.episodes, None, False, self.verbose, env=self.eval_env)
+            self.logger.record(key="black_wins", value=black_wins)
         self.model.save(self.file)
         return True
 
 
 import argparse
+
+_eval_env = None
+def get_eval_env(args):
+    """A separate env for PlayCallback's games (never the training env), built on first use."""
+    global _eval_env
+    if _eval_env is None and args.eval_games > 0:
+        _eval_env = build_reversi(opponent=args.test_opponent, depth=args.edax_depth,
+                                  start_positions=args.start_positions)
+    return _eval_env
 
 def learn_helper(PlayCallback, args, file, checkpoint_cb, env, net_width, model, timesteps, lr=None):
     """Helper function to run training for a specified number of timesteps.
@@ -98,8 +111,7 @@ def learn_helper(PlayCallback, args, file, checkpoint_cb, env, net_width, model,
         set_learning_rate(model, lr)
         print(f"📊 Learning rate: {lr:.2e}")
 
-    test_opponent = get_opponent(args.test_opponent, file=file, env=env, net_width=net_width)
-    playCB = PlayCallback(model, file, 100, test_opponent, False)
+    playCB = PlayCallback(model, file, args.eval_games, get_eval_env(args), False)
     everyNCB = EveryNTimesteps(n_steps=10000, callback=playCB)
     model.learn(total_timesteps=timesteps,
                 progress_bar=True,
@@ -110,7 +122,7 @@ def learn_helper(PlayCallback, args, file, checkpoint_cb, env, net_width, model,
 def train_random_only(model, env, args, file, checkpoint_cb, net_width, timesteps):
     """Mode 1: Train only against Random opponent."""
     print(f"🎯 Training Mode: Random-only for {timesteps:,} timesteps")
-    env.unwrapped.set_opponent("Random", None)
+    set_opponent(env, "Random", None)
     learn_helper(PlayCallback, args, file, checkpoint_cb, env, net_width, model, timesteps)
 
 def train_selfplay_mixed(model, env, args, file, checkpoint_cb, net_width, timesteps, random_ratio=0.2, refresh_interval=None):
@@ -148,13 +160,13 @@ def train_selfplay_mixed(model, env, args, file, checkpoint_cb, net_width, times
         # Train against self (frozen opponent)
         if block_selfplay > 0:
             print(f"🤖 Self-play training: {block_selfplay:,} timesteps")
-            env.unwrapped.set_opponent("Model", temp_opponent, reload=True)  # file was just overwritten
+            set_opponent(env, "Model", temp_opponent, reload=True)  # file was just overwritten
             learn_helper(PlayCallback, args, file, checkpoint_cb, env, net_width, model, block_selfplay)
         
         # Train against random
         if block_random > 0:
             print(f"🎲 Random training: {block_random:,} timesteps")
-            env.unwrapped.set_opponent("Random", None)
+            set_opponent(env, "Random", None)
             learn_helper(PlayCallback, args, file, checkpoint_cb, env, net_width, model, block_random)
         
         timesteps_trained += block_timesteps
@@ -227,19 +239,19 @@ def train_mixed_three_way(model, env, args, file, checkpoint_cb, net_width, time
         # Train against self (frozen opponent)
         if block_selfplay > 0:
             print(f"🤖 Self-play training: {block_selfplay:,} timesteps")
-            env.unwrapped.set_opponent("Model", temp_opponent, reload=True)  # file was just overwritten
+            set_opponent(env, "Model", temp_opponent, reload=True)  # file was just overwritten
             learn_helper(PlayCallback, args, file, checkpoint_cb, env, net_width, model, block_selfplay)
 
         # Train against random
         if block_random > 0:
             print(f"🎲 Random training: {block_random:,} timesteps")
-            env.unwrapped.set_opponent("Random", None)
+            set_opponent(env, "Random", None)
             learn_helper(PlayCallback, args, file, checkpoint_cb, env, net_width, model, block_random)
 
         # Train against RAI
         if block_rai > 0:
             print(f"🧠 RAI training (depth={rai_depth}): {block_rai:,} timesteps")
-            env.unwrapped.set_opponent("RAI", None, depth=rai_depth)
+            set_opponent(env, "RAI", None, depth=rai_depth)
             learn_helper(PlayCallback, args, file, checkpoint_cb, env, net_width, model, block_rai)
 
         timesteps_trained += block_timesteps
@@ -306,13 +318,13 @@ def train_edax_curriculum(model, env, args, file, checkpoint_cb, net_width, time
         for depth, block_ts in zip(edax_depths, block_edax):
             if block_ts > 0:
                 print(f"🧠 Edax-{depth} training: {block_ts:,} timesteps")
-                env.unwrapped.set_opponent("Edax", None, depth=depth)
+                set_opponent(env, "Edax", None, depth=depth)
                 learn_helper(PlayCallback, args, file, checkpoint_cb, env, net_width, model, block_ts)
 
         # Train against random
         if block_random > 0:
             print(f"🎲 Random training: {block_random:,} timesteps")
-            env.unwrapped.set_opponent("Random", None)
+            set_opponent(env, "Random", None)
             learn_helper(PlayCallback, args, file, checkpoint_cb, env, net_width, model, block_random)
 
         timesteps_trained += block_timesteps
@@ -344,13 +356,13 @@ def train_selfplay_edax(model, env, args, file, checkpoint_cb, net_width, timest
                 print(f"💾 Saving current model as opponent: {temp_opponent}")
                 model.save(temp_opponent)
                 print(f"🤖 Self-play training: {block_ts:,} timesteps")
-                env.unwrapped.set_opponent("Model", temp_opponent, reload=True)  # file was just overwritten
+                set_opponent(env, "Model", temp_opponent, reload=True)  # file was just overwritten
             elif opp == "Edax":
                 print(f"🧠 Edax-{depth} training: {block_ts:,} timesteps")
-                env.unwrapped.set_opponent("Edax", None, depth=depth)
+                set_opponent(env, "Edax", None, depth=depth)
             else:
                 print(f"🎲 Random training: {block_ts:,} timesteps")
-                env.unwrapped.set_opponent("Random", None)
+                set_opponent(env, "Random", None)
             learn_helper(PlayCallback, args, file, checkpoint_cb, env, net_width, model, block_ts)
 
         timesteps_trained += block_timesteps
@@ -380,7 +392,7 @@ def train_sequential(model, env, args, file, checkpoint_cb, net_width, random_ti
     if use_lr_decay:
         progress = timesteps_done / total_timesteps
         phase1_lr = args.start_lr - (args.start_lr - args.end_lr) * progress
-        env.unwrapped.set_opponent("Random", None)
+        set_opponent(env, "Random", None)
         learn_helper(PlayCallback, args, file, checkpoint_cb, env, net_width, model, random_timesteps, lr=phase1_lr)
     else:
         train_random_only(model, env, args, file, checkpoint_cb, net_width, random_timesteps)
@@ -420,7 +432,7 @@ def train_sequential(model, env, args, file, checkpoint_cb, net_width, random_ti
                 print(f"🤖 Self-play training: {block_selfplay:,} timesteps")
                 progress = (timesteps_done + phase2_timesteps_done) / total_timesteps
                 current_lr = args.start_lr - (args.start_lr - args.end_lr) * progress
-                env.unwrapped.set_opponent("Model", temp_opponent, reload=True)  # file was just overwritten
+                set_opponent(env, "Model", temp_opponent, reload=True)  # file was just overwritten
                 learn_helper(PlayCallback, args, file, checkpoint_cb, env, net_width, model, block_selfplay, lr=current_lr)
                 phase2_timesteps_done += block_selfplay
 
@@ -429,7 +441,7 @@ def train_sequential(model, env, args, file, checkpoint_cb, net_width, random_ti
                 print(f"🎲 Random training: {block_random:,} timesteps")
                 progress = (timesteps_done + phase2_timesteps_done) / total_timesteps
                 current_lr = args.start_lr - (args.start_lr - args.end_lr) * progress
-                env.unwrapped.set_opponent("Random", None)
+                set_opponent(env, "Random", None)
                 learn_helper(PlayCallback, args, file, checkpoint_cb, env, net_width, model, block_random, lr=current_lr)
                 phase2_timesteps_done += block_random
 
@@ -515,7 +527,13 @@ Usage Examples:
 
     # Model and environment configuration
     parser.add_argument("-m", "--model", default="dorkQ", help="Model name")
-    parser.add_argument("-t", "--test-opponent", default="Random", help="Test opponent type")
+    parser.add_argument("-t", "--test-opponent", default="Random", help="Opponent for --eval-games (Random, Edax, RAI)")
+    parser.add_argument("--eval-games", type=int, default=0,
+                        help="games played every 10k steps on a separate env vs --test-opponent, logged as "
+                             "black_wins (0 = skip; the model is still saved every 10k steps)")
+    parser.add_argument("--n-envs", type=int, default=1,
+                        help="games run in lockstep, batching the model's moves (n_steps is scaled to keep "
+                             "2048 steps per update)")
     parser.add_argument("-w", "--net-width", type=int, default=512, help="Neural network width - Not for CNNs!")
     parser.add_argument("-lr", "--learning-rate", type=float, default=2e-5, help="Learning rate (default: 2e-5)")
     parser.add_argument("--start-positions", type=str, default=None,
@@ -549,19 +567,33 @@ Usage Examples:
 
     file = "models/" + args.model + "_CNN_test"
     checkpoint_cb = CheckpointCallback(
-        save_freq=50_000,
+        save_freq=max(50_000 // args.n_envs, 1),  # counted in callback calls; each call is n_envs steps
         save_path="./checkpoints/",
         name_prefix=args.model + "_CNN_test",
     )
 
     # Initial environment setup (will be reconfigured based on mode)
-    env: ReversiEnvCNN = ActionMasker(build_reversi(opponent="Random", start_positions=args.start_positions,
-                                                    standard_start_prob=args.standard_start_ratio), mask_fn)
+    def make_env():
+        return ActionMasker(build_reversi(opponent="Random", start_positions=args.start_positions,
+                                          standard_start_prob=args.standard_start_ratio), mask_fn)
+
+    # With --n-envs > 1, several games run in lockstep in this process so the model evaluates all
+    # their positions in one batched call (per-call GPU latency dominated single-game rollouts).
+    # n_steps is per env, so it is scaled to keep 2048 steps per PPO update.
+    if args.n_envs > 1:
+        env = DummyVecEnv([make_env for _ in range(args.n_envs)])
+        n_steps = max(2048 // args.n_envs, 1)
+        print(f"🧵 {args.n_envs} envs, n_steps {n_steps} per env ({n_steps * args.n_envs} per update)")
+    else:
+        env = make_env()
+        n_steps = None
     if args.start_positions:
-        print(f"🎲 Varied starts: {len(env.unwrapped.start_positions):,} positions from {args.start_positions}, "
+        first = env.envs[0] if isinstance(env, VecEnv) else env
+        print(f"🎲 Varied starts: {len(first.unwrapped.start_positions):,} positions from {args.start_positions}, "
               f"{args.standard_start_ratio:.0%} standard opening")
 
-    model = get_model(file, env, net_width=args.net_width, learning_rate=args.learning_rate, model_type="cnn", device=device)
+    model = get_model(file, env, net_width=args.net_width, learning_rate=args.learning_rate, model_type="cnn",
+                      device=device, n_steps=n_steps)
     
     print(f"🚀 Starting training with model: {args.model}")
     print(f"💻 Using device: {device}")
@@ -574,7 +606,7 @@ Usage Examples:
 
         # Set up environment with specified opponent
         print(f" opponent create with edax depth = {args.edax_depth}")
-        env.unwrapped.set_opponent(args.opponent, args.opp_model, depth=args.edax_depth)
+        set_opponent(env, args.opponent, args.opp_model, depth=args.edax_depth)
 
         # Train for specified timesteps
         learn_helper(PlayCallback, args, file, checkpoint_cb, env, args.net_width, model, args.timesteps)

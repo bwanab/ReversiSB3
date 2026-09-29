@@ -105,6 +105,17 @@ Common options: `-m/--model` (name; saved as `models/{name}_CNN_test.zip`), `--t
 opponent refresh / checkpoint cadence), `-t/--test-opponent`. `-e`, `-o`, `-p`, `-r` are legacy
 flags; the step log uses `-e`/`-p` with `--mode mixed`, but prefer `--timesteps`.
 
+**`--n-envs N`** (default 1) runs N games in lockstep in one process (`DummyVecEnv`), so the
+model's moves are evaluated in one batched call; `n_steps` is set to `2048 // N` to keep 2048 steps
+per PPO update, and checkpoints still land every 50k steps. Measured (128x8, MPS): vs Edax-2 126 ->
+341 (8 envs) -> 395 steps/s (16); self-play 113 -> 192 -> 207 (the opponent network's moves are
+still one at a time inside each game). Opponents are set on every env through
+`util/training.py:set_opponent`; a refreshed self-play opponent is loaded once and shared.
+**`--eval-games N`** (default 0) plays N games every 10k steps on a separate env vs
+`--test-opponent` and logs `black_wins`; the model is saved every 10k steps either way. (Before
+2026-09-29 this callback always played 100 deterministic games on the training env itself, costing
+~25% of run time and leaving the env out of sync with SB3's last observation.)
+
 ### Playing/Evaluating Models
 ```bash
 uv run python sb-play.py -m MODEL_NAME_CNN_test -e 100 -o Edax -p 6 -d
@@ -354,7 +365,7 @@ Device selection is handled in `sb-train.py` and passed to model creation.
 Run the suite with `./run_tests.sh` (all tests) or `./run_tests.sh <name>` for one group
 (`environment`, `scenarios`, `edge_cases`, `training`, `integration`, `bc`, `focused`,
 `training_issues`, `step`, `lr`, `features`, `resnet`, `play`, `starts`, `refresh`, `openings`, `mix`, ...).
-The script sets `PYTHONPATH` to the project root and runs through `uv run`. All 124 tests in `tests/`
+The script sets `PYTHONPATH` to the project root and runs through `uv run`. All 129 tests in `tests/`
 are part of the runner and pass. `test_edax_opponent.py`
 in the project root is a separate script that needs the Edax server running.
 

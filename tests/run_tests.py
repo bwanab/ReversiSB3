@@ -31,8 +31,8 @@ def run_all_tests():
     from test_start_positions import TestStartPositions
     from test_opponent_refresh import TestOpponentRefresh
     from test_openings import TestOpenings
-    from test_training_mix import TestTrainingMix
-    
+    from test_training_mix import TestTrainingMix, TestVecEnvTraining
+
     # Create test suite
     test_classes = [
         TestReversiEnvironment,
@@ -59,7 +59,8 @@ def run_all_tests():
         TestStartPositions,
         TestOpponentRefresh,
         TestOpenings,
-        TestTrainingMix
+        TestTrainingMix,
+        TestVecEnvTraining
     ]
     
     suite = unittest.TestSuite()

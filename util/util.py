@@ -94,15 +94,18 @@ PPO_KWARGS = dict(
 )
 
 def get_model(file, env, net_width=256, learning_rate = 1e-5, model_type="cnn", device="cpu", input_planes=False,
-              channels=64, blocks=6):
+              channels=64, blocks=6, n_steps=None):
     """Load `file`.zip if it exists, otherwise create a new model.
 
     model_type: "cnn" (ReversiCNN; input_planes selects the 5-plane input), "resnet"
     (ReversiResNetPolicy: residual trunk of `blocks` x `channels` with spatial heads;
     always uses the 5-plane input), or anything else for the legacy MLP policy.
+    n_steps: rollout steps per env per update, overriding the saved/default value (use
+    2048 // n_envs with a vectorized env to keep the update size).
     """
+    ppo_kwargs = dict(PPO_KWARGS, **({"n_steps": n_steps} if n_steps else {}))
     if file is not None and os.path.isfile(file + ".zip"):
-        model = MaskablePPO.load(file, env=env)
+        model = MaskablePPO.load(file, env=env, **({"n_steps": n_steps} if n_steps else {}))
         #### turns out, this is redundant since policy is always saved with model
         # model.policy = MaskableActorCriticPolicy.load(file + '_policy.zip')
         # Update learning rate if provided and different from saved model
@@ -121,7 +124,7 @@ def get_model(file, env, net_width=256, learning_rate = 1e-5, model_type="cnn", 
                             tensorboard_log=file + ".log",
                             device=device,
                             learning_rate=learning_rate,
-                            **PPO_KWARGS
+                            **ppo_kwargs
         )
     elif model_type == "resnet":
         policy_kwargs = dict(features_extractor_kwargs=dict(channels=channels, blocks=blocks))
@@ -131,7 +134,7 @@ def get_model(file, env, net_width=256, learning_rate = 1e-5, model_type="cnn", 
                             tensorboard_log=file + ".log",
                             device=device,
                             learning_rate=learning_rate,
-                            **PPO_KWARGS
+                            **ppo_kwargs
         )
     else:
         # lrs = lambda x: 0.003
