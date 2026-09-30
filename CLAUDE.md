@@ -17,8 +17,10 @@ Edax up to depth 6 almost every game from the standard opening but hits a wall a
 **from randomized openings it wins ~0%**: its Edax results were memorized lines, not playing
 strength (see "Memorization finding" below). Measure progress from random openings.
 
-**Current direction (2026-09):** retrain from scratch on the new machine/stack, possibly with
-changes to the CNN, reusing the BC dataset. The previous best model is kept as a benchmark.
+**Current direction (2026-09-30):** the strongest model is BC-only `resnet128x8_bc20cos_bconly`
+(top move from random openings: 64% vs Edax-1, 29.5% vs Edax-2); PPO so far degraded best play.
+Next: supervised learning from Edax labels (its move and score per position, and scores for every
+move) instead of more PPO; see "Top-move finding" below.
 
 ## Key Architecture Components
 
@@ -125,9 +127,12 @@ Options:
 - `-e/--episodes`: number of games
 - `-o/--opponent`: `Random`, `RAI`, `Edax`, `Model` (with `-r models/<opponent model>`)
 - `-p/--depth`: RAI/Edax search depth
-- `-d/--non_deterministic`: sample moves from the policy. **Without `-d` play is deterministic**,
-  which replays the same game every time and gives misleading win rates (0% or 100%); always use
-  `-d` for win-rate measurements
+- `-d/--non_deterministic`: sample moves from the policy; without it the model plays its top move.
+  From the standard opening, top-move play vs a deterministic opponent replays one game (0% or
+  100%), so there you need `-d`. **From varied starts (`--random-opening`/`--start-positions`),
+  top-move play is the headline measure** (each start gives one distinct game): it measures the
+  model's best play, and sampling roughly halves win rates (policy entropy ~0.87). With named
+  openings use 150 games (one per position); more just repeats identical games.
 - `-v/--verbose`: display game details
 - `--random-opening N`: start each game with N random plies (both sides), then the model plays
   BLACK. `--seed S` makes the openings reproducible so different models face the same positions.
@@ -328,6 +333,23 @@ noise), and the curriculum run relearned lines via its 5% standard-opening games
 mixed `selfplay-edax` recipe on `resnet128x8_bc20cos` with no standard starts, once rollouts are faster
 (~30k games per 1M steps is too little experience).
 
+**Top-move finding (2026-09-30):** evaluated by top move instead of sampling, RL made the model
+*worse*, steadily (win %, random openings 200 games / named openings 150 distinct):
+
+| `resnet128x8_bc20cos` | Random Edax-1 | Named Edax-1 | Random Edax-2 | Named Edax-2 |
+|---|---|---|---|---|
+| BC only | **64.0** | **78.7** | **29.5** | **37.3** |
+| + 1M mixed RL | 57.5 | 76.0 | 25.0 | 33.0 |
+| + 4M | 55.5 | 67.3 | 24.5 | 28.3 |
+| + 5M | 59.0 | 51.0 | 19.5 | 27.7 |
+
+With sampling (`-d`) the same run looked like +10 points then flat. PPO optimizes sampled play and,
+with `ent_coef=0.03`, keeps the policy spread (entropy ~0.87 throughout); the top choice drifted from
+what BC learned. A 1-2 ply search scored by the PPO-trained value head (`--search-depth`) was far
+worse than the policy's top move (1M checkpoint, random Edax-1: 11.5% / 17.5% at depths 1/2 vs 57.5%
+top move): the value head (explained variance ~0.55) can't rank sibling positions. Head-to-heads
+(sampled) also showed 4M = 1M (49%) while 1M beat BC-only 57%.
+
 **Rollout speed (profiled 2026-09-29, 128x8 on MPS):** vs Edax-2 111 steps/s, self-play 97 steps/s
 after vectorizing the legal-move planes and disabling torch.distributions argument checks (were 101 and
 72). PPO updates are only ~10% of the time. What remains is mostly fixed MPS latency per forward call
@@ -350,7 +372,7 @@ features_dim = 256     # ReversiCNN output
 
 **Metrics to monitor:** `explained_variance` (> 0.5, ideally 0.7+), `approx_kl` (< 0.05),
 `clip_fraction` (consistently > 0.3 means the clip range is binding), and win rate vs Edax at
-several depths (always non-deterministic, `-d`).
+several depths (top move from random/named openings; see `-d` above).
 
 **Loading models saved on the old machine** (Python 3.10, SB3 2.0) works for evaluation, but
 their pickled `clip_range`/`lr_schedule` can't be deserialized on Python 3.14; SB3 warns
