@@ -73,10 +73,9 @@ python sb-play.py -m my_model -e 100 -o Edax --depth 6
 ```
 
 **Edax Strength Levels:**
-- Depth 1: Fast tactical play (~0.01s/move, 100 moves/sec)
-- Depth 4: Strong play (~0.1s/move, 10 moves/sec)
-- Depth 6: Very strong (~1s/move, 1 move/sec)
-- Depth 8+: Expert level (5-10s/move)
+- Search time per move (M4 Max, measured 2026-09-30, averaged over all game phases): depth 8
+  ~2.5 ms, depth 10 ~6 ms, depth 12 ~7 ms, depth 14 ~9 ms (~35M nodes/s). Depth is searched
+  exactly, with no selective search.
 
 ### Edax vs RAI Performance
 

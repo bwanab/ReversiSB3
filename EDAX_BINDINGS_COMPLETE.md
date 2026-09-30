@@ -109,6 +109,12 @@ python sb-train.py --mode mixed -m my_model -e 500000 -o Edax --edax-depth 6
 | 8     | ~1s       | ~1        | Very Strong | Deep analysis |
 | 10    | ~5-10s    | ~0.1      | Elite    | Evaluation only |
 
+These timings are out of date. Measured 2026-09-30 on the M4 Max (averaged over positions from
+all game phases, including the server round trip): depth 8 ~2.5 ms, depth 10 ~6 ms, depth 12
+~7 ms, depth 14 ~9 ms per move (~35M nodes/s). The wrapper searches exactly the requested depth
+with no selectivity; the older numbers likely predate the fix that stopped it using Edax's level
+table (which adds exact endgame solving).
+
 ### Comparison to Other Opponents
 
 | Opponent | Depth | Time/Move | Implementation |

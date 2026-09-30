@@ -89,10 +89,10 @@ class EdaxOpponent(Opponent):
     Start the server first:
         python edax_server.py
 
-    Performance:
-    - Depth 4: ~0.01s per move (~100 moves/sec)
-    - Depth 6: ~0.1s per move (~10 moves/sec)
-    - Depth 10: ~5-10s per move
+    Performance (M4 Max, measured 2026-09-30, averaged over positions from all game phases,
+    including the server round trip): depth 8 ~2.5 ms, depth 10 ~6 ms, depth 12 ~7 ms,
+    depth 14 ~9 ms per move (~35M nodes/s). The wrapper searches exactly the requested depth
+    with no selectivity (edax_wrapper.c).
     """
 
     def __init__(self, **kwargs):

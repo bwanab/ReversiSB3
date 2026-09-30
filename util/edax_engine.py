@@ -27,10 +27,9 @@ class EdaxEngine:
         """Initialize Edax engine.
 
         Args:
-            depth: Search depth (1-60, typical range 4-20)
-                  - Depth 4: ~0.01s per move
-                  - Depth 6: ~0.1s per move
-                  - Depth 10: ~5-10s per move
+            depth: Search depth (1-60), searched exactly (no selectivity). On the M4 Max,
+                  averaged over positions from all game phases: depth 8 ~2.5 ms, depth 12
+                  ~7 ms, depth 14 ~9 ms per move (~35M nodes/s)
             lib_path: Path to libedax.dylib (auto-detected if None)
         """
         # Find library
