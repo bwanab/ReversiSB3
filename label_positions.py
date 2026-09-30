@@ -72,13 +72,19 @@ def label_one(args):
     return move, score, scores
 
 
-def sample_positions(dataset_file, n, min_stones, max_stones, seed):
+def sample_positions(dataset_file, n, min_stones, max_stones, seed, exclude=()):
     with open(dataset_file, "rb") as f:
         package = pickle.load(f)
     data = package["dataset"] if "dataset" in package else package["moves"]
     states = np.stack([item["state"] for item in data]).astype(np.int8).reshape(len(data), 64)
     stones = (states != 0).sum(axis=1)
     states = np.unique(states[(stones >= min_stones) & (stones <= max_stones)], axis=0)
+    if exclude:
+        done = set()
+        for f in exclude:
+            done.update(b.tobytes() for b in np.load(f)["boards"])
+        states = states[np.array([s.tobytes() not in done for s in states], dtype=bool)]
+        print(f"{len(states):,} positions left after excluding {len(done):,} already labeled")
     rng = np.random.default_rng(seed)
     pick = rng.choice(len(states), size=min(n, len(states)), replace=False)
     boards = states[pick]
@@ -108,10 +114,12 @@ def main():
     parser.add_argument("--max-stones", type=int, default=60)
     parser.add_argument("-w", "--workers", type=int, default=10, help="parallel Edax servers")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--exclude", nargs="*", default=[], help="label files whose positions to skip")
     parser.add_argument("-o", "--output", required=True)
     args = parser.parse_args()
 
-    boards = sample_positions(args.dataset, args.num_positions, args.min_stones, args.max_stones, args.seed)
+    boards = sample_positions(args.dataset, args.num_positions, args.min_stones, args.max_stones, args.seed,
+                              args.exclude)
     print(f"Labeling {len(boards):,} positions at depth {args.depth}"
           f"{' (every move)' if args.every_move else ''} with {args.workers} Edax servers")
 
