@@ -24,11 +24,13 @@ def random_opening(env, plies, rng):
     return True
 
 def play(model, num_games, opponent, deterministic, verbose, random_opening_plies=0, seed=None,
-         return_draws=False, env=None, chooser=None):
+         return_draws=False, env=None, chooser=None, start_sequence=None):
     """Play num_games with the model as BLACK against the env's opponent. Returns BLACK's wins,
     or (wins, draws) with return_draws=True. Games are played on `env` if given, otherwise on
     the model's own (single) env. chooser(board) -> move, if given, replaces the policy's choice
-    (e.g. util.search.SearchPlayer)."""
+    (e.g. util.search.SearchPlayer). start_sequence, an (N, 64) array of boards (BLACK to move),
+    starts game i from start_sequence[i % N]: each position is played once, in order, so N games
+    cover them all (unlike the env's start_positions, which samples with replacement)."""
     env = env.unwrapped if env is not None else model.get_env().envs[0].unwrapped
     # obs = vec_env.reset()
     obs, _ = env.reset(seed=seed)  # seeds the env's start-position sampling, if it has any
@@ -43,6 +45,10 @@ def play(model, num_games, opponent, deterministic, verbose, random_opening_plie
     for i in range(num_games):
         # Reset environment for each new game
         obs, _ = env.reset()
+        if start_sequence is not None:
+            env.board[:] = np.asarray(start_sequence[i % len(start_sequence)]).reshape(env.board.shape)
+            env.player = BLACK
+            obs = env.board
         if random_opening_plies:
             while not random_opening(env, random_opening_plies, rng):
                 obs, _ = env.reset()

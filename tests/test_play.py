@@ -95,5 +95,36 @@ class TestPairedStarts(unittest.TestCase):
         self.assertFalse(all(np.array_equal(x, y) for x, y in zip(a, b)))
 
 
+class TestStartSequence(unittest.TestCase):
+    """play(start_sequence=...) starts game i from position i, each once and in order."""
+
+    def test_each_position_once_in_order(self):
+        import tempfile
+        from util.util import get_model
+        from util.play import play
+        from util.search import legal_moves
+        from tests.test_start_positions import sample_positions
+        positions = sample_positions(n_games=3, seed=5)[:12]
+        env = ReversiEnvCNN(opponent="Random")
+        with tempfile.TemporaryDirectory() as d:
+            model = get_model(os.path.join(d, "m"), env, model_type="resnet", channels=8, blocks=1)
+        firsts, new_game = [], [False]
+        original_reset = env.reset
+
+        def reset(**kwargs):            # a reset (loop or end-of-game) marks the next move as a game start
+            new_game[0] = True
+            return original_reset(**kwargs)
+        env.reset = reset
+
+        def chooser(board):
+            if new_game[0]:
+                firsts.append(np.asarray(board).reshape(64).astype(np.int8).tobytes())
+                new_game[0] = False
+            return int(legal_moves(np.asarray(board).reshape(64))[0])
+
+        play(model, len(positions), None, True, False, env=env, chooser=chooser, start_sequence=positions)
+        self.assertEqual(firsts, [p.tobytes() for p in positions])
+
+
 if __name__ == '__main__':
     unittest.main()

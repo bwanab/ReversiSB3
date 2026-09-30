@@ -17,10 +17,10 @@ Edax up to depth 6 almost every game from the standard opening but hits a wall a
 **from randomized openings it wins ~0%**: its Edax results were memorized lines, not playing
 strength (see "Memorization finding" below). Measure progress from random openings.
 
-**Current direction (2026-09-30):** the strongest model is BC-only `resnet128x8_bc20cos_bconly`
-(top move from random openings: 64% vs Edax-1, 29.5% vs Edax-2); PPO so far degraded best play.
-Next: supervised learning from Edax labels (its move and score per position, and scores for every
-move) instead of more PPO; see "Top-move finding" below.
+**Current direction (2026-10-01):** the strongest model is `edax1m_graded` (BC-only 128x8
+fine-tuned on 1M Edax depth-12 labels with graded targets; top move from random openings: 68.5% vs
+Edax-1, 38.5% vs Edax-2, 20% vs Edax-3). PPO so far degraded best play. Next: more Edax labels,
+including positions the model itself reaches; see "Edax labels" below.
 
 ## Key Architecture Components
 
@@ -132,14 +132,15 @@ Options:
   100%), so there you need `-d`. **From varied starts (`--random-opening`/`--start-positions`),
   top-move play is the headline measure** (each start gives one distinct game): it measures the
   model's best play, and sampling roughly halves win rates (policy entropy ~0.87). With named
-  openings use 150 games (one per position); more just repeats identical games.
+  openings use 150 games (each position once); more just repeats identical games.
 - `-v/--verbose`: display game details
 - `--random-opening N`: start each game with N random plies (both sides), then the model plays
   BLACK. `--seed S` makes the openings reproducible so different models face the same positions.
   **Use this for headline win rates** (e.g. `--random-opening 8 --seed 42`); standard-opening
   results mostly measure memorized lines against Edax (see Training History)
-- `--start-positions FILE`: start each game from a random position in a .npy (model to move),
-  seeded by `--seed`. `opening_positions.npy` (from `make_opening_positions.py`: the 150 distinct
+- `--start-positions FILE`: start game i from position i of a .npy (model to move), in order,
+  cycling if `-e` exceeds the count (before 2026-10-01 it sampled with replacement, so 150 games
+  covered only ~95 of the 150 positions and named-opening numbers were noisier). `opening_positions.npy` (from `make_opening_positions.py`: the 150 distinct
   positions along the named openings in `moves.txt`, symmetry-merged, 8-22 stones) gives a balanced,
   realistic second evaluation next to `--random-opening`
 
@@ -350,6 +351,28 @@ worse than the policy's top move (1M checkpoint, random Edax-1: 11.5% / 17.5% at
 top move): the value head (explained variance ~0.55) can't rank sibling positions. Head-to-heads
 (sampled) also showed 4M = 1M (49%) while 1M beat BC-only 57%.
 
+**Edax labels (2026-09-30):** `label_positions.py` labels deduplicated BC-dataset positions with
+Edax's move and score (discs, side to move) at a fixed depth, optionally scoring every legal move
+(`--every-move`: via the position after it at depth - 1, passes and finished games handled), running
+one Edax server per worker (`-w`; ~170 positions/s every-move at depth 12 with 12 servers). Checked:
+position score = best move score in 96% (99.4% within 2 discs). `edax_train.py` fine-tunes on the
+labels (policy target `graded` = softmax(move_score / 2), `best` = Edax's move, or `score` = centered
+logit regression; value target tanh(score / 16)) and reports policy regret and 1-ply value-search
+regret in discs. The dataset has 2.2M distinct 5-60-stone positions. Results, fine-tuning
+`resnet128x8_bc20cos_bconly` for 4 epochs at lr 5e-5 on 1M every-move labels (top move, random
+openings 200 games):
+
+| Model | Edax-1 | Edax-2 | Edax-3 | Policy regret | Value regret |
+|---|---|---|---|---|---|
+| BC only | 64.0 | 29.5 | 16.5 | 1.88 | 4.73 |
+| `edax1m_best` | 68.5 | 30.0 | 14.0 | 1.84 | 3.57 |
+| **`edax1m_graded`** | **68.5** | **38.5** | **20.0** | **1.82** | **3.29** |
+| `edax1m_score` | 61.0 | 32.0 | 15.5 | 1.90 | 3.64 |
+
+A 100k-label pilot gained ~2-3 points. The value head predicts Edax scores well (MSE 0.25 -> 0.07)
+but still ranks sibling moves far worse than the policy (3.3 vs 1.8 discs lost per move), so search
+is still not expected to help.
+
 **Rollout speed (profiled 2026-09-29, 128x8 on MPS):** vs Edax-2 111 steps/s, self-play 97 steps/s
 after vectorizing the legal-move planes and disabling torch.distributions argument checks (were 101 and
 72). PPO updates are only ~10% of the time. What remains is mostly fixed MPS latency per forward call
@@ -393,7 +416,7 @@ Device selection is handled in `sb-train.py` and passed to model creation.
 Run the suite with `./run_tests.sh` (all tests) or `./run_tests.sh <name>` for one group
 (`environment`, `scenarios`, `edge_cases`, `training`, `integration`, `bc`, `focused`,
 `training_issues`, `step`, `lr`, `features`, `resnet`, `play`, `starts`, `refresh`, `openings`, `mix`, `search`, ...).
-The script sets `PYTHONPATH` to the project root and runs through `uv run`. All 136 tests in `tests/`
+The script sets `PYTHONPATH` to the project root and runs through `uv run`. All 137 tests in `tests/`
 are part of the runner and pass. `test_edax_opponent.py`
 in the project root is a separate script that needs the Edax server running.
 
@@ -410,6 +433,12 @@ An earlier version of this file listed "critical" env bugs (missing `is_game_ove
 bad masking, wrong initial moves). Those were bugs in the tests, not the env, and have been fixed.
 
 ## Deferred Work
+
+### Bigger network, and search with the Edax-trained value head (deferred 2026-10-01)
+- A larger trunk than 128x8 (it showed no overfitting on BC or the Edax labels), to absorb a
+  stronger teacher.
+- Search check with `edax1m_graded`'s value head: `sb-play.py --search-depth 2 --search-top-k 3`
+  (value regret 3.3 vs policy 1.8 discs suggests it will still lose to the top move).
 
 ### Opponent-vs-opponent play (not currently needed)
 

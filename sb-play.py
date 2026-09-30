@@ -1,5 +1,6 @@
 
 import gymnasium as gym
+import numpy as np
 from util.reversi import build_reversi
 from util.play import play
 from util.search import SearchPlayer
@@ -23,15 +24,16 @@ def play_games(file,
                start_positions=None,
                search_depth=0,
                search_top_k=None):
-    env = build_reversi(opponent=opponentName, verbose=verbose, opponent_model=opponent_model, depth=depth,
-                        start_positions=start_positions)
+    env = build_reversi(opponent=opponentName, verbose=verbose, opponent_model=opponent_model, depth=depth)
     #opponent = get_opponent(opponentName, file=file, env=env)
 
     model = MaskablePPO.load(file, env=env)
     # model.policy = MaskableActorCriticPolicy.load(file + '_policy.zip')
     chooser = SearchPlayer(model, depth=search_depth, top_k=search_top_k) if search_depth > 0 else None
+    start_sequence = np.load(start_positions) if start_positions else None
     return play(model, num_games, None, deterministic, verbose,
-                random_opening_plies=random_opening, seed=seed, return_draws=True, chooser=chooser)
+                random_opening_plies=random_opening, seed=seed, return_draws=True, chooser=chooser,
+                start_sequence=start_sequence)
 
 import argparse
 if __name__ == '__main__':
@@ -52,8 +54,8 @@ if __name__ == '__main__':
     parser.add_argument("--seed", type=int, default=None,
                         help="seed for --random-opening / --start-positions, so different models face the same openings")
     parser.add_argument("--start-positions", type=str, default=None,
-                        help="start each game from a random position in this .npy (e.g. opening_positions.npy "
-                             "from make_opening_positions.py), model to move")
+                        help="start game i from position i of this .npy (e.g. opening_positions.npy from "
+                             "make_opening_positions.py), in order, cycling if -e exceeds the count; model to move")
     parser.add_argument("--search-depth", type=int, default=0,
                         help="choose the model's moves by minimax this many plies deep, scored by its value "
                              "head (0 = policy head as usual). Not used with -o Model")
