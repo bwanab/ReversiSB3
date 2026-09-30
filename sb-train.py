@@ -12,6 +12,7 @@ from time import time
 import torch
 from sb3_contrib.common.wrappers import ActionMasker
 from stable_baselines3.common.vec_env import DummyVecEnv, VecEnv
+from stable_baselines3.common.monitor import Monitor
 
 from stable_baselines3.common.logger import configure
 from stable_baselines3.common.callbacks import BaseCallback, EveryNTimesteps, CheckpointCallback
@@ -581,7 +582,8 @@ Usage Examples:
     # their positions in one batched call (per-call GPU latency dominated single-game rollouts).
     # n_steps is per env, so it is scaled to keep 2048 steps per PPO update.
     if args.n_envs > 1:
-        env = DummyVecEnv([make_env for _ in range(args.n_envs)])
+        # SB3 adds Monitor (per-game reward/length stats, ep_rew_mean) only around a single env
+        env = DummyVecEnv([lambda: Monitor(make_env()) for _ in range(args.n_envs)])
         n_steps = max(2048 // args.n_envs, 1)
         print(f"🧵 {args.n_envs} envs, n_steps {n_steps} per env ({n_steps * args.n_envs} per update)")
     else:
