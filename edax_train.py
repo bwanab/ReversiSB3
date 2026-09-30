@@ -4,7 +4,10 @@ Fine-tune a model on Edax labels from label_positions.py (supervised, like BC).
 
 Targets:
   policy  'graded': soft target over legal moves, p(m) ~ exp(move_score(m) / T), needs
-          --every-move labels; 'best': one-hot on Edax's best move
+          --every-move labels; 'best': one-hot on Edax's best move; 'score': regress the
+          policy logits onto move_score / T over legal moves, both centered per position
+          (only differences between moves matter), so softmax(logits) -> exp(score / T) and
+          every move's score is fit equally (needs --every-move labels)
   value   tanh(edax_score / value_scale), the value head's usual [-1, 1] range
 All 8 board symmetries are used for augmentation (boards and move scores permuted together).
 
@@ -63,11 +66,18 @@ def heads(policy, boards, device):
     return policy.action_net(latent_pi), policy.value_net(latent_vf).squeeze(-1)
 
 
-def policy_loss(logits, best, move_scores, target, temperature, device):
+def policy_loss(logits, best, move_scores, target, temperature, device, value_scale):
     if target == "best":
         return F.cross_entropy(logits, torch.as_tensor(best, device=device))
     ms = torch.as_tensor(move_scores, device=device)
     legal = ~torch.isnan(ms)
+    if target == "score":
+        n_legal = legal.sum(dim=1, keepdim=True).clamp(min=1)
+        t = torch.nan_to_num(ms) / temperature
+        lg = logits.masked_fill(~legal, 0.0)
+        t_c = t - t.masked_fill(~legal, 0.0).sum(dim=1, keepdim=True) / n_legal
+        l_c = lg - lg.sum(dim=1, keepdim=True) / n_legal
+        return ((l_c - t_c) ** 2)[legal].mean()
     target_logits = torch.where(legal, torch.nan_to_num(ms) / temperature, torch.full_like(ms, -1e9))
     target_p = torch.softmax(target_logits, dim=1)
     logp = torch.log_softmax(logits.masked_fill(~legal, -1e9), dim=1)
@@ -113,7 +123,7 @@ def main():
     parser.add_argument("--base", required=True, help="starting model name under models/ (no _CNN_test.zip)")
     parser.add_argument("--model", help="output model name (saved as models/{model}_CNN_test.zip)")
     parser.add_argument("--train", choices=["policy", "value", "both"], default="both")
-    parser.add_argument("--policy-target", choices=["graded", "best"], default="graded")
+    parser.add_argument("--policy-target", choices=["graded", "best", "score"], default="graded")
     parser.add_argument("--temperature", type=float, default=2.0, help="graded target: discs per e-fold")
     parser.add_argument("--value-scale", type=float, default=16.0, help="value target = tanh(score / scale)")
     parser.add_argument("--value-coef", type=float, default=1.0)
@@ -127,8 +137,8 @@ def main():
     args = parser.parse_args()
 
     train, val = load_labels(args.labels, args.val_frac, args.seed)
-    if args.policy_target == "graded" and train["move_scores"] is None and args.train != "value":
-        parser.error("--policy-target graded needs labels made with --every-move")
+    if args.policy_target in ("graded", "score") and train["move_scores"] is None and args.train != "value":
+        parser.error(f"--policy-target {args.policy_target} needs labels made with --every-move")
     env = build_reversi("Random")
     model = MaskablePPO.load(f"models/{args.base}_CNN_test", env=env, device=args.device)
     policy = model.policy
@@ -152,6 +162,12 @@ def main():
         policy.set_training_mode(True)
         if args.freeze_trunk:
             policy.features_extractor.eval()
+        # a head that isn't being trained must not update its BatchNorm statistics either
+        heads_ = getattr(policy.mlp_extractor, "policy_head", None), getattr(policy.mlp_extractor, "value_head", None)
+        if args.train == "value" and heads_[0] is not None:
+            heads_[0].eval()
+        if args.train == "policy" and heads_[1] is not None:
+            heads_[1].eval()
         order = rng.permutation(len(train["boards"]))
         total, n = 0.0, 0
         for i in range(0, len(order) - args.batch_size + 1, args.batch_size):
@@ -161,7 +177,8 @@ def main():
             logits, v = heads(policy, boards, device)
             loss = 0.0
             if args.train in ("policy", "both"):
-                loss = loss + policy_loss(logits, best, ms, args.policy_target, args.temperature, device)
+                loss = loss + policy_loss(logits, best, ms, args.policy_target, args.temperature, device,
+                                          args.value_scale)
             if args.train in ("value", "both"):
                 target = torch.as_tensor(np.tanh(train["score"][ix] / args.value_scale), device=device)
                 loss = loss + args.value_coef * F.mse_loss(v, target)
