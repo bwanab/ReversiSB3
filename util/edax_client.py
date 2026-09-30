@@ -34,6 +34,14 @@ class EdaxClient:
         Returns:
             int: Best move (0-63), or None if no legal moves
         """
+        return self.analyze(state, depth)["move"]
+
+    def analyze(self, state, depth=None):
+        """Search a position and return the server's full response:
+        {"move": best move 0-63 or None if the side to move has no legal move,
+         "score": Edax's score in discs from the side to move's perspective (0 if no move),
+         "nodes": nodes searched}.
+        """
         if depth is None:
             depth = self.depth
 
@@ -77,7 +85,7 @@ class EdaxClient:
             if "error" in response:
                 raise RuntimeError(f"Edax server error: {response['error']}")
 
-            return response["move"]
+            return response
 
         except ConnectionRefusedError:
             raise RuntimeError(

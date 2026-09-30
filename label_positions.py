@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+"""
+Label positions with Edax: its best move and score, and optionally a score for every legal move.
+
+Positions are sampled (deduplicated) from a BC dataset, where they are stored from the side to
+move's perspective (1 = side to move). The script starts its own Edax servers (one per worker,
+on separate sockets) so labeling runs in parallel, and stops them when done.
+
+Output (.npz):
+  boards      (N, 64) int8   side-to-move perspective
+  best_move   (N,)    int16  Edax's move at --depth
+  score       (N,)    int16  Edax's score at --depth, discs from the side to move's view
+  move_scores (N, 64) float32, only with --every-move: score of each legal move from the side to
+              move's view (NaN for illegal moves) = -(Edax score of the resulting position at
+              depth - 1), or the exact result if the game ends / the continuation after a pass
+  depth, source metadata
+
+Usage:
+  python label_positions.py -n 100000 --depth 12 --every-move -o labels_d12_100k.npz
+"""
+
+import argparse
+import os
+import pickle
+import subprocess
+import sys
+import time
+from multiprocessing import Pool
+
+import numpy as np
+
+from util.edax_client import EdaxClient
+from util.search import legal_moves, play_move
+
+_client = None
+
+
+def _init_worker(socket_queue):
+    global _client
+    _client = EdaxClient(socket_path=socket_queue.get())
+
+
+def _edax(board, depth):
+    """(move, score) for a (64,) board with a legal move for the side to move."""
+    r = _client.analyze(board.reshape(8, 8), depth=depth)
+    return r["move"], r["score"]
+
+
+def _exact(board):
+    """Final disc difference from the side to move's view (for finished games)."""
+    return float((board == 1).sum() - (board == -1).sum())
+
+
+def _position_score(board, depth):
+    """Edax score of `board` from its side to move's view, handling passes and finished games."""
+    if len(legal_moves(board)) > 0:
+        return float(_edax(board, depth)[1])
+    if len(legal_moves(-board)) > 0:          # side to move must pass
+        return -float(_edax(-board, depth)[1])
+    return _exact(board)
+
+
+def label_one(args):
+    board, depth, every_move = args
+    move, score = _edax(board, depth)
+    scores = None
+    if every_move:
+        scores = np.full(64, np.nan, dtype=np.float32)
+        for m in legal_moves(board):
+            child = play_move(board, m)              # opponent to move
+            scores[m] = -_position_score(child, max(depth - 1, 1))
+    return move, score, scores
+
+
+def sample_positions(dataset_file, n, min_stones, max_stones, seed):
+    with open(dataset_file, "rb") as f:
+        package = pickle.load(f)
+    data = package["dataset"] if "dataset" in package else package["moves"]
+    states = np.stack([item["state"] for item in data]).astype(np.int8).reshape(len(data), 64)
+    stones = (states != 0).sum(axis=1)
+    states = np.unique(states[(stones >= min_stones) & (stones <= max_stones)], axis=0)
+    rng = np.random.default_rng(seed)
+    pick = rng.choice(len(states), size=min(n, len(states)), replace=False)
+    boards = states[pick]
+    has_move = np.array([len(legal_moves(b)) > 0 for b in boards])
+    return boards[has_move]
+
+
+def start_servers(k):
+    paths = [f"/tmp/edax_label_{os.getpid()}_{i}.sock" for i in range(k)]
+    procs = [subprocess.Popen([sys.executable, "edax_server.py", "--socket", p],
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) for p in paths]
+    deadline = time.time() + 60
+    while not all(os.path.exists(p) for p in paths):
+        if time.time() > deadline:
+            raise RuntimeError("Edax servers did not start")
+        time.sleep(0.2)
+    return procs, paths
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("-d", "--dataset", default="combined_bc_dataset.pkl")
+    parser.add_argument("-n", "--num-positions", type=int, default=100_000)
+    parser.add_argument("--depth", type=int, default=12)
+    parser.add_argument("--every-move", action="store_true", help="also score every legal move")
+    parser.add_argument("--min-stones", type=int, default=5)
+    parser.add_argument("--max-stones", type=int, default=60)
+    parser.add_argument("-w", "--workers", type=int, default=10, help="parallel Edax servers")
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("-o", "--output", required=True)
+    args = parser.parse_args()
+
+    boards = sample_positions(args.dataset, args.num_positions, args.min_stones, args.max_stones, args.seed)
+    print(f"Labeling {len(boards):,} positions at depth {args.depth}"
+          f"{' (every move)' if args.every_move else ''} with {args.workers} Edax servers")
+
+    procs, paths = start_servers(args.workers)
+    try:
+        from multiprocessing import Manager
+        with Manager() as manager:
+            queue = manager.Queue()
+            for p in paths:
+                queue.put(p)
+            t = time.time()
+            results = []
+            with Pool(args.workers, initializer=_init_worker, initargs=(queue,)) as pool:
+                jobs = ((b, args.depth, args.every_move) for b in boards)
+                for i, r in enumerate(pool.imap(label_one, jobs, chunksize=64)):
+                    results.append(r)
+                    if (i + 1) % 10_000 == 0:
+                        rate = (i + 1) / (time.time() - t)
+                        print(f"  {i + 1:,} labeled, {rate:.0f}/s, ~{(len(boards) - i - 1) / rate / 60:.0f} min left",
+                              flush=True)
+            elapsed = time.time() - t
+    finally:
+        for p in procs:
+            p.terminate()
+        for p in procs:
+            p.wait()
+
+    out = dict(boards=boards,
+               best_move=np.array([r[0] for r in results], dtype=np.int16),
+               score=np.array([r[1] for r in results], dtype=np.int16),
+               depth=args.depth, source=args.dataset)
+    if args.every_move:
+        out["move_scores"] = np.stack([r[2] for r in results])
+    np.savez_compressed(args.output, **out)
+    print(f"Saved {len(boards):,} labeled positions to {args.output} "
+          f"({elapsed / 60:.1f} min, {len(boards) / elapsed:.0f}/s)")
+
+
+if __name__ == "__main__":
+    main()
