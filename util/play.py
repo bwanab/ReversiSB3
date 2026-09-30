@@ -24,10 +24,11 @@ def random_opening(env, plies, rng):
     return True
 
 def play(model, num_games, opponent, deterministic, verbose, random_opening_plies=0, seed=None,
-         return_draws=False, env=None):
+         return_draws=False, env=None, chooser=None):
     """Play num_games with the model as BLACK against the env's opponent. Returns BLACK's wins,
     or (wins, draws) with return_draws=True. Games are played on `env` if given, otherwise on
-    the model's own (single) env."""
+    the model's own (single) env. chooser(board) -> move, if given, replaces the policy's choice
+    (e.g. util.search.SearchPlayer)."""
     env = env.unwrapped if env is not None else model.get_env().envs[0].unwrapped
     # obs = vec_env.reset()
     obs, _ = env.reset(seed=seed)  # seeds the env's start-position sampling, if it has any
@@ -55,10 +56,15 @@ def play(model, num_games, opponent, deterministic, verbose, random_opening_plie
             if verbose:
                 pass
                 render(board)
-            action, probs, actions = get_action(model, board, mask_fn(env), deterministic=deterministic, verbose=verbose)
-            if verbose:
-                m = torch.nn.Softmax(dim=0)
-                print(action, actions, m(probs).detach().numpy())
+            if chooser is not None:
+                action = chooser(board)
+                if verbose:
+                    print(action)
+            else:
+                action, probs, actions = get_action(model, board, mask_fn(env), deterministic=deterministic, verbose=verbose)
+                if verbose:
+                    m = torch.nn.Softmax(dim=0)
+                    print(action, actions, m(probs).detach().numpy())
             if verbose:
                 mn = get_move_notation(env, player, action)
                 moves.append(mn)

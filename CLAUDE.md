@@ -138,6 +138,12 @@ Options:
   positions along the named openings in `moves.txt`, symmetry-merged, 8-22 stones) gives a balanced,
   realistic second evaluation next to `--random-opening`
 
+- `--search-depth N` (1-2 practical): choose the model's moves by negamax N plies deep, scoring
+  leaf positions with the value head in one batched call (`util/search.py`; exact scores for finished
+  games, forced passes don't use depth). `--search-top-k K` searches only the policy's top K root
+  moves. Always plays the best-scoring move, so compare it with the policy's top move (no `-d`), not
+  only with sampling (`-d`). Not used with `-o Model`. Depth 2 costs ~70 ms per move (Python tree).
+
 `opening_agreement.py -m MODEL ...` reports how often a model's top move is a `moves.txt` book
 continuation (and its probability mass on book moves) over the 412 book positions after 4+ plies.
 
@@ -364,8 +370,8 @@ Device selection is handled in `sb-train.py` and passed to model creation.
 
 Run the suite with `./run_tests.sh` (all tests) or `./run_tests.sh <name>` for one group
 (`environment`, `scenarios`, `edge_cases`, `training`, `integration`, `bc`, `focused`,
-`training_issues`, `step`, `lr`, `features`, `resnet`, `play`, `starts`, `refresh`, `openings`, `mix`, ...).
-The script sets `PYTHONPATH` to the project root and runs through `uv run`. All 129 tests in `tests/`
+`training_issues`, `step`, `lr`, `features`, `resnet`, `play`, `starts`, `refresh`, `openings`, `mix`, `search`, ...).
+The script sets `PYTHONPATH` to the project root and runs through `uv run`. All 136 tests in `tests/`
 are part of the runner and pass. `test_edax_opponent.py`
 in the project root is a separate script that needs the Edax server running.
 

@@ -2,6 +2,7 @@
 import gymnasium as gym
 from util.reversi import build_reversi
 from util.play import play
+from util.search import SearchPlayer
 from util.opponents import get_opponent
 
 import torch
@@ -19,15 +20,18 @@ def play_games(file,
                depth=2,
                random_opening=0,
                seed=None,
-               start_positions=None):
+               start_positions=None,
+               search_depth=0,
+               search_top_k=None):
     env = build_reversi(opponent=opponentName, verbose=verbose, opponent_model=opponent_model, depth=depth,
                         start_positions=start_positions)
     #opponent = get_opponent(opponentName, file=file, env=env)
 
     model = MaskablePPO.load(file, env=env)
     # model.policy = MaskableActorCriticPolicy.load(file + '_policy.zip')
+    chooser = SearchPlayer(model, depth=search_depth, top_k=search_top_k) if search_depth > 0 else None
     return play(model, num_games, None, deterministic, verbose,
-                random_opening_plies=random_opening, seed=seed, return_draws=True)
+                random_opening_plies=random_opening, seed=seed, return_draws=True, chooser=chooser)
 
 import argparse
 if __name__ == '__main__':
@@ -50,6 +54,11 @@ if __name__ == '__main__':
     parser.add_argument("--start-positions", type=str, default=None,
                         help="start each game from a random position in this .npy (e.g. opening_positions.npy "
                              "from make_opening_positions.py), model to move")
+    parser.add_argument("--search-depth", type=int, default=0,
+                        help="choose the model's moves by minimax this many plies deep, scored by its value "
+                             "head (0 = policy head as usual). Not used with -o Model")
+    parser.add_argument("--search-top-k", type=int, default=None,
+                        help="with --search-depth, search only the policy's top k moves at the root")
     args = parser.parse_args()
 
     import time
@@ -95,7 +104,9 @@ if __name__ == '__main__':
                                 depth=depth,
                                 random_opening=args.random_opening,
                                 seed=args.seed,
-                                start_positions=args.start_positions)
+                                start_positions=args.start_positions,
+                                search_depth=args.search_depth,
+                                search_top_k=args.search_top_k)
         print(f"Black wins: {100 * black_wins / n_games}%")
 
     end = time.time()
