@@ -17,9 +17,9 @@ Edax up to depth 6 almost every game from the standard opening but hits a wall a
 **from randomized openings it wins ~0%**: its Edax results were memorized lines, not playing
 strength (see "Memorization finding" below). Measure progress from random openings.
 
-**Current direction (2026-10-01):** the strongest model is `edax1m_graded` (BC-only 128x8
-fine-tuned on 1M Edax depth-12 labels with graded targets; top move from random openings: 68.5% vs
-Edax-1, 38.5% vs Edax-2, 20% vs Edax-3). PPO so far degraded best play. Next: more Edax labels,
+**Current direction (2026-10-01):** the strongest model is `edax2m_graded` (BC-only 128x8
+fine-tuned on all 2.2M dataset positions labeled by Edax at depth 12, graded targets; top move from
+random openings: 68% vs Edax-1, 44% vs Edax-2, 23% vs Edax-3). PPO so far degraded best play. Next: more Edax labels,
 including positions the model itself reaches; see "Edax labels" below.
 
 ## Key Architecture Components
@@ -368,6 +368,16 @@ openings 200 games):
 | `edax1m_best` | 68.5 | 30.0 | 14.0 | 1.84 | 3.57 |
 | **`edax1m_graded`** | **68.5** | **38.5** | **20.0** | **1.82** | **3.29** |
 | `edax1m_score` | 61.0 | 32.0 | 15.5 | 1.90 | 3.64 |
+| **`edax2m_graded`** (all 2.2M dataset positions, 6 epochs) | 68.0 | **44.0** | **23.0** | **1.79** | **2.79** |
+
+Named openings (all 150 once, Edax-1/2/3): BC 84.0/42.0/22.0, `edax1m_graded` 76.7/44.0/33.3,
+`edax2m_graded` 82.0/49.3/20.0. Value regret keeps falling with more labels (4.7 -> 3.3 -> 2.8).
+
+**DAgger (2026-10-01):** the dataset's positions are all labeled, so new positions come from the
+model's own games: `collect_positions.py -m MODEL -n N -o positions.npy --exclude labels*.npz` plays
+the model (sampled moves, lockstep batched) vs itself and Edax 1-3 from random and named openings and
+saves the distinct positions it had to move in (~2,000/s); `label_positions.py --positions FILE`
+labels them; `edax_train.py --labels` takes several files (repeats dropped).
 
 A 100k-label pilot gained ~2-3 points. The value head predicts Edax scores well (MSE 0.25 -> 0.07)
 but still ranks sibling moves far worse than the policy (3.3 vs 1.8 discs lost per move), so search
