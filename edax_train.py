@@ -34,12 +34,21 @@ from util.board_features import PERMS
 from util.search import play_move, legal_moves
 
 
-def load_labels(path, val_frac, seed):
-    L = np.load(path)
-    boards = L["boards"].astype(np.int8)
-    move_scores = L["move_scores"].astype(np.float32) if "move_scores" in L else None
-    data = dict(boards=boards, best=L["best_move"].astype(np.int64), score=L["score"].astype(np.float32),
-                move_scores=move_scores)
+def load_labels(paths, val_frac, seed):
+    """Load and concatenate label files, dropping repeated positions (first one kept)."""
+    files = [np.load(p) for p in paths]
+    has_ms = all("move_scores" in L for L in files)
+    boards = np.concatenate([L["boards"] for L in files]).astype(np.int8)
+    _, first = np.unique(boards, axis=0, return_index=True)
+    keep = np.sort(first)
+    data = dict(boards=boards[keep],
+                best=np.concatenate([L["best_move"] for L in files]).astype(np.int64)[keep],
+                score=np.concatenate([L["score"] for L in files]).astype(np.float32)[keep],
+                move_scores=np.concatenate([L["move_scores"] for L in files]).astype(np.float32)[keep]
+                if has_ms else None)
+    if len(keep) < len(boards):
+        print(f"dropped {len(boards) - len(keep):,} repeated positions across label files")
+    boards = data["boards"]
     rng = np.random.default_rng(seed)
     idx = rng.permutation(len(boards))
     n_val = int(len(boards) * val_frac)
@@ -119,7 +128,7 @@ def evaluate(policy, val, device, value_scale, batch=2048):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--labels", required=True)
+    parser.add_argument("--labels", required=True, nargs="+", help="one or more label .npz files")
     parser.add_argument("--base", required=True, help="starting model name under models/ (no _CNN_test.zip)")
     parser.add_argument("--model", help="output model name (saved as models/{model}_CNN_test.zip)")
     parser.add_argument("--train", choices=["policy", "value", "both"], default="both")
