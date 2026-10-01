@@ -153,6 +153,12 @@ Options:
 `opening_agreement.py -m MODEL ...` reports how often a model's top move is a `moves.txt` book
 continuation (and its probability mass on book moves) over the 412 book positions after 4+ plies.
 
+`sb-play.py` refuses top-move play (no `-d`) or `--search-depth` against Edax, RAI or a Model
+from the standard opening (every game would be identical); add `-d` or vary the starts. In
+Model-vs-Model games the opponent model now plays the same way as `-m` (top move without `-d`,
+sampled with it); before 2026-10-01 it always sampled, so top-move head-to-heads were really
+top move vs sampled.
+
 The model always plays BLACK. Model-vs-Model (`-o Model -r models/<other>`) is color-balanced and
 takes `--random-opening`/`--start-positions`/`--seed` too: both halves see the same starting
 positions with colors swapped, so opening luck cancels out. It prints wins as BLACK/WHITE, draws,

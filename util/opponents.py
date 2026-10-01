@@ -42,6 +42,8 @@ class ModelOpponent(Opponent):
         env = kwargs.get('env')
         net_width=kwargs.get('net_width')
         self.verbose = kwargs.get('verbose', False)
+        # sample moves by default (self-play training wants variety); evaluation can set True
+        self.deterministic = kwargs.get('deterministic', False)
         self.model = get_model(file, env, net_width=net_width)
         self.alt_env = copy.deepcopy(env.unwrapped)
         self.alt_env.player = BLACK
@@ -58,7 +60,7 @@ class ModelOpponent(Opponent):
         # actual game state.
         alt_state = state * self.player
         self.alt_env.board = alt_state
-        action, _ = self.model.predict(alt_state, action_masks=mask_fn(self.alt_env), deterministic=False)
+        action, _ = self.model.predict(alt_state, action_masks=mask_fn(self.alt_env), deterministic=self.deterministic)
         return np.array(action)
 
 class RAIOpponent(Opponent):

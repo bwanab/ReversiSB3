@@ -27,6 +27,8 @@ def play_games(file,
     env = build_reversi(opponent=opponentName, verbose=verbose, opponent_model=opponent_model, depth=depth)
     #opponent = get_opponent(opponentName, file=file, env=env)
 
+    if opponentName == "Model":
+        env.opponent.deterministic = deterministic   # both models play the same way (top move or sampled)
     model = MaskablePPO.load(file, env=env)
     # model.policy = MaskableActorCriticPolicy.load(file + '_policy.zip')
     chooser = SearchPlayer(model, depth=search_depth, top_k=search_top_k) if search_depth > 0 else None
@@ -69,6 +71,14 @@ if __name__ == '__main__':
     # black_wins = play_games("models/" + args.model, n_games, verbose=True, opponentName=args.opponent,deterministic=args.deterministic)
     start = time.time()
     deterministic = not bool(args.non_deterministic)
+    # Top-move play (or search) against a deterministic opponent replays one game per starting
+    # position, so a fixed start would make every game identical.
+    varied_starts = bool(args.random_opening or args.start_positions)
+    deterministic_play = deterministic or args.search_depth > 0
+    if deterministic_play and args.opponent in ("Edax", "Model", "RAI") and not varied_starts:
+        parser.error(f"top-move play (no -d) or --search-depth against {args.opponent} from the standard "
+                     f"opening replays the same game every time; add -d, or vary the starts with "
+                     f"--random-opening N or --start-positions FILE")
     if args.opponent == "Model":
         # Each half plays the same sequence of starting positions (same seed) with the colors
         # swapped, so opening luck largely cancels out.
