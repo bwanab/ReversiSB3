@@ -115,11 +115,17 @@ def main():
     parser.add_argument("-w", "--workers", type=int, default=10, help="parallel Edax servers")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--exclude", nargs="*", default=[], help="label files whose positions to skip")
+    parser.add_argument("--positions", help="label the (N, 64) boards in this .npy (e.g. from collect_positions.py) "
+                                            "instead of sampling --dataset")
     parser.add_argument("-o", "--output", required=True)
     args = parser.parse_args()
 
-    boards = sample_positions(args.dataset, args.num_positions, args.min_stones, args.max_stones, args.seed,
-                              args.exclude)
+    if args.positions:
+        boards = np.load(args.positions).astype(np.int8)[:args.num_positions]
+        boards = boards[np.array([len(legal_moves(b)) > 0 for b in boards], dtype=bool)]
+    else:
+        boards = sample_positions(args.dataset, args.num_positions, args.min_stones, args.max_stones, args.seed,
+                                  args.exclude)
     print(f"Labeling {len(boards):,} positions at depth {args.depth}"
           f"{' (every move)' if args.every_move else ''} with {args.workers} Edax servers")
 
