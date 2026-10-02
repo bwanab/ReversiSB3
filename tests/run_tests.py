@@ -32,7 +32,7 @@ def run_all_tests():
     from test_opponent_refresh import TestOpponentRefresh
     from test_openings import TestOpenings
     from test_training_mix import TestTrainingMix, TestVecEnvTraining
-    from test_search import TestSearch
+    from test_search import TestSearch, TestBatchedSearch
 
     # Create test suite
     test_classes = [
@@ -63,7 +63,8 @@ def run_all_tests():
         TestOpenings,
         TestTrainingMix,
         TestVecEnvTraining,
-        TestSearch
+        TestSearch,
+        TestBatchedSearch
     ]
     
     suite = unittest.TestSuite()

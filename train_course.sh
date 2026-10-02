@@ -25,14 +25,13 @@ have() { [ -f models/$1_CNN_test.zip ]; }
 evaluate() {   # evaluate MODEL
   local m=$1
   pgrep -f edax_server.py >/dev/null || { say "Edax server not running; skipping evaluation of $m"; return; }
+  # eval_batch.py plays all games in lockstep (batched network calls): same results as sb-play.py
   for mode in top search; do
-    local opts=""; [ $mode = search ] && opts="--search-depth 2 --search-top-k 3"
-    for d in 1 2 3 4; do
-      [ $mode = top ] && [ $d = 4 ] && continue
-      local r1=$(uv run python sb-play.py -m ${m}_CNN_test -e 200 -o Edax -p $d --random-opening 8 --seed 42 ${=opts} 2>&1 | grep -i "black wins")
-      local r2=$(uv run python sb-play.py -m ${m}_CNN_test -e 150 -o Edax -p $d --start-positions opening_positions.npy ${=opts} 2>&1 | grep -i "black wins")
-      say "eval $m | $mode | edax-$d | random: ${r1#*: } | named: ${r2#*: }"
-    done
+    local opts="" depths=1,2,3; [ $mode = search ] && { opts="--search-depth 2 --search-top-k 3"; depths=1,2,3,4; }
+    uv run python eval_batch.py -m ${m}_CNN_test -p $depths -e 200 --random-opening 8 --seed 42 ${=opts} 2>&1 \
+        | grep "Black wins" | sed "s/^/random | /" | while read -r line; do say "eval $mode | $line"; done
+    uv run python eval_batch.py -m ${m}_CNN_test -p $depths -e 150 --start-positions opening_positions.npy ${=opts} 2>&1 \
+        | grep "Black wins" | sed "s/^/named | /" | while read -r line; do say "eval $mode | $line"; done
   done
   local h1=$(uv run python sb-play.py -m ${m}_CNN_test -r models/${REF}_CNN_test -o Model -e 400 --random-opening 8 --seed 42 2>&1 | grep "Model:")
   local h2=$(uv run python sb-play.py -m ${m}_CNN_test -r models/${REF}_CNN_test -o Model -e 300 --start-positions opening_positions.npy 2>&1 | grep "Model:")

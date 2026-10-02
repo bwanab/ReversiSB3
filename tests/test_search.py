@@ -13,7 +13,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from util.reversi import ReversiEnvCNN
 from util.util import BLACK
-from util.search import legal_moves, play_move, search, SearchPlayer
+from util.search import legal_moves, play_move, search, search_many, SearchPlayer
 from tests.test_start_positions import sample_positions
 
 ENV = ReversiEnvCNN(opponent="Random")
@@ -110,6 +110,74 @@ class TestSearch(unittest.TestCase):
                 for b in self.positions[::7]:
                     if len(legal_moves(b)):
                         self.assertIn(player(b), set(legal_moves(b)))
+
+
+class TestBatchedSearch(unittest.TestCase):
+    """search_many / choose_many give the same moves as one-at-a-time search; the lockstep
+    driver plays complete, legal games."""
+
+    @classmethod
+    def setUpClass(cls):
+        import tempfile, torch
+        from util.util import get_model
+        torch.manual_seed(0)
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.model = get_model(os.path.join(cls.tmp.name, "m"), ENV, model_type="resnet", channels=8, blocks=1)
+        cls.positions = [b for b in sample_positions(n_games=4, seed=9) if len(legal_moves(b))][::3]
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def test_search_many_matches_search(self):
+        many = search_many(self.positions, 2, disc_eval)
+        for b, (best, scores) in zip(self.positions, many):
+            self.assertEqual((best, scores), search(b, 2, disc_eval))
+
+    def test_choose_many_matches_single(self):
+        """With the same root candidates, batched search scores every move like one-at-a-time
+        search (to float tolerance: batched and single network calls differ by ~1e-7), and
+        choose_many plays the batched best move. (Root candidates themselves come from one batched
+        policy call; this untrained network's near-uniform logits make single-call rankings
+        differ, so they're computed once and shared here.)"""
+        from util.search import policy_top_moves
+        for depth, top_k in ((1, None), (2, 3)):
+            player = SearchPlayer(self.model, depth=depth, top_k=top_k)
+            roots = policy_top_moves(self.model, self.positions, top_k) if top_k else [None] * len(self.positions)
+            batched = search_many(self.positions, depth, player.evaluate, roots)
+            for b, r, (best, scores) in zip(self.positions, roots, batched):
+                _, single = search(b, depth, player.evaluate, r)
+                self.assertEqual(set(single), set(scores))
+                for m in scores:
+                    self.assertAlmostEqual(scores[m], single[m], places=5)
+            self.assertEqual(player.choose_many(self.positions), [best for best, _ in batched])
+
+    def test_top_move_is_policy_argmax(self):
+        from util.search import policy_logits
+        player = SearchPlayer(self.model, depth=0)
+        logits = policy_logits(self.model, self.positions)
+        for b, lg, m in zip(self.positions, logits, player.choose_many(self.positions)):
+            moves = legal_moves(b)
+            self.assertEqual(m, int(moves[np.argmax(lg[moves])]))
+
+    def test_lockstep_games_complete(self):
+        """Against a stand-in 'Edax' that plays its first legal move, every game ends, and the
+        result equals the final disc difference from the model's side."""
+        from util.lockstep import play_vs_edax
+
+        class FirstMove:
+            def analyze(self, board, depth):
+                return {"move": int(legal_moves(np.asarray(board).reshape(64))[0])}
+        player = SearchPlayer(self.model, depth=0)
+        diffs = play_vs_edax(player.choose_many, self.positions[:6], 1, client=FirstMove())
+        self.assertEqual(len(diffs), 6)
+        self.assertTrue(all(-64 <= d <= 64 for d in diffs))
+
+    def test_sb_play_starts_reproducible(self):
+        from util.lockstep import sb_play_starts
+        a, b = sb_play_starts(5, 8, 42), sb_play_starts(5, 8, 42)
+        self.assertTrue(all(np.array_equal(x, y) for x, y in zip(a, b)))
+        self.assertTrue(all(len(legal_moves(x)) for x in a))
 
 
 if __name__ == '__main__':

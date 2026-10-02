@@ -150,6 +150,16 @@ Options:
   moves. Always plays the best-scoring move, so compare it with the policy's top move (no `-d`), not
   only with sampling (`-d`). Not used with `-o Model`. Depth 2 costs ~70 ms per move (Python tree).
 
+**`eval_batch.py`** (2026-10-02) plays all games vs Edax in lockstep, batching the model's network
+calls (`util/lockstep.py`, `SearchPlayer.choose_many`, `search_many`): same options as sb-play for
+top move / `--search-depth`/`--search-top-k`, several Edax depths at once (`-p 1,2,3`), same starting
+positions as sb-play. Top-move results match sb-play exactly; ~2 s per 200 top-move games and ~15 s
+per 200 depth-2 search games (vs minutes). Search results can differ from older sb-play runs by a
+few points: candidates are now ordered by policy logit, so exact ties (common late in games) go to
+the policy's preferred move, and a single diverging move changes a whole game. The old SearchPlayer
+also queried root candidates once in training mode right after loading. Use `eval_batch.py` for Edax
+evaluations; sb-play for sampled play and Model-vs-Model.
+
 `opening_agreement.py -m MODEL ...` reports how often a model's top move is a `moves.txt` book
 continuation (and its probability mass on book moves) over the 412 book positions after 4+ plies.
 
@@ -401,6 +411,9 @@ graded Edax labels (3.2M, 6 epochs) -> `r192x10_edax`, then a DAgger round (+1M 
 | `r192x10_edax` | 77.5 / 45 / 30.5, named 91.3 / 61.3 / 35.3 | 85.5 / 74 / 49 / 29, named 96.7 / 80 / 56.7 / 30.7 |
 | **`r192x10_dagger`** | 82 / 43 / 30, named 86.7 / 55.3 / 40 | **92.5 / 71 / 52.5 / 37.5**, named **96 / 80.7 / 60 / 38** |
 
+Re-measured with `eval_batch.py` (the reference from now on), `r192x10_dagger` with search wins
+88 / 74 / 55 / 44% (random) and 98 / 86.7 / 66.7 / 36% (named) vs Edax-1/2/3/4; top move unchanged.
+
 Head-to-head (top move, paired) vs `edax_dagger1`: `r192x10_edax` 60.2% random / 55.3% named,
 `r192x10_dagger` 66.2% / 58.3%. The bigger network raised both heads, and search now adds ~25-30
 points at Edax-2/3: with search, `r192x10_dagger` beats Edax-3 more often than not.
@@ -448,7 +461,7 @@ Device selection is handled in `sb-train.py` and passed to model creation.
 Run the suite with `./run_tests.sh` (all tests) or `./run_tests.sh <name>` for one group
 (`environment`, `scenarios`, `edge_cases`, `training`, `integration`, `bc`, `focused`,
 `training_issues`, `step`, `lr`, `features`, `resnet`, `play`, `starts`, `refresh`, `openings`, `mix`, `search`, ...).
-The script sets `PYTHONPATH` to the project root and runs through `uv run`. All 137 tests in `tests/`
+The script sets `PYTHONPATH` to the project root and runs through `uv run`. All 142 tests in `tests/`
 are part of the runner and pass. `test_edax_opponent.py`
 in the project root is a separate script that needs the Edax server running.
 

@@ -72,22 +72,52 @@ def _score(node, values):
     return max(-_score(child, values) for _, child in payload)
 
 
-def search(board, depth, evaluate, root_moves=None):
-    """Negamax to `depth` plies from `board` (side to move = 1).
+def search_many(boards, depth, evaluate, root_moves=None):
+    """Negamax to `depth` plies from each of several boards (side to move = 1), scoring the
+    leaves of all their trees in one evaluate() call.
 
-    evaluate: (N, 64) boards -> (N,) scores, each from that board's side-to-move perspective.
-    root_moves: optional subset of legal moves to consider at the root (e.g. policy top-k).
-    Returns (best_move, {move: score}) with scores from the root side's perspective.
+    root_moves: optional list (one per board) of root move subsets, e.g. the policy's top k.
+    Returns a list of (best_move, {move: score}) with scores from each root side's perspective.
     """
-    board = np.asarray(board, dtype=np.int8).reshape(64)
-    moves = legal_moves(board) if root_moves is None else np.asarray(root_moves)
-    assert len(moves) > 0, "search called on a position with no legal move"
-    leaves = []
-    children = [(int(m), _expand(play_move(board, m), depth - 1, leaves)) for m in moves]
+    leaves, trees = [], []
+    for i, board in enumerate(boards):
+        board = np.asarray(board, dtype=np.int8).reshape(64)
+        moves = legal_moves(board) if root_moves is None or root_moves[i] is None else np.asarray(root_moves[i])
+        assert len(moves) > 0, "search called on a position with no legal move"
+        trees.append([(int(m), _expand(play_move(board, m), depth - 1, leaves)) for m in moves])
     values = evaluate(np.array(leaves)) if leaves else np.zeros(0)
-    scores = {m: -_score(child, values) for m, child in children}
-    best = max(scores, key=scores.get)
-    return best, scores
+    results = []
+    for children in trees:
+        scores = {m: -_score(child, values) for m, child in children}
+        results.append((max(scores, key=scores.get), scores))
+    return results
+
+
+def search(board, depth, evaluate, root_moves=None):
+    """Negamax to `depth` plies from `board` (side to move = 1); see search_many.
+    Returns (best_move, {move: score}) with scores from the root side's perspective."""
+    return search_many([board], depth, evaluate, None if root_moves is None else [root_moves])[0]
+
+
+def policy_logits(model, boards):
+    """Policy logits (N, 64) for (N, 64) side-to-move boards, in one network call."""
+    policy = model.policy
+    obs = torch.as_tensor(np.asarray(boards).reshape(-1, 1, 8, 8), dtype=torch.float32, device=policy.device)
+    policy.set_training_mode(False)
+    with torch.no_grad():
+        features = policy.extract_features(obs)
+        latent_pi, _ = policy.mlp_extractor(features)
+        return policy.action_net(latent_pi).cpu().numpy()
+
+
+def policy_top_moves(model, boards, k):
+    """The policy's k most likely legal moves for each board (best first), in one network call."""
+    logits = policy_logits(model, boards)
+    out = []
+    for b, lg in zip(boards, logits):
+        moves = legal_moves(np.asarray(b).reshape(64))
+        out.append(moves[np.argsort(-lg[moves], kind="stable")[:k]])
+    return out
 
 
 def value_evaluator(model):
@@ -103,7 +133,8 @@ def value_evaluator(model):
 
 
 class SearchPlayer:
-    """Chooses moves for the model by searching `depth` plies with its value head.
+    """Chooses moves for the model by searching `depth` plies with its value head (depth 0:
+    the policy's top move).
 
     top_k: if set, only the policy head's k most likely legal moves are searched at the root.
     """
@@ -112,19 +143,14 @@ class SearchPlayer:
         self.model, self.depth, self.top_k = model, depth, top_k
         self.evaluate = value_evaluator(model)
 
-    def root_moves(self, board):
-        moves = legal_moves(board)
-        if self.top_k is None or len(moves) <= self.top_k:
-            return moves
-        policy = self.model.policy
-        obs = torch.as_tensor(board.reshape(1, 1, 8, 8), dtype=torch.float32, device=policy.device)
-        mask = np.zeros((1, 64), dtype=bool)
-        mask[0, moves] = True
-        with torch.no_grad():
-            probs = policy.get_distribution(obs, action_masks=mask).distribution.probs[0].cpu().numpy()
-        return moves[np.argsort(-probs[moves])[:self.top_k]]
+    def choose_many(self, boards):
+        """Best move for each of several boards, with one policy call (if top_k or depth 0)
+        and one value call for all of them. depth 0 = the policy's top move."""
+        boards = [np.asarray(b, dtype=np.int8).reshape(64) for b in boards]
+        if self.depth == 0:
+            return [int(m[0]) for m in policy_top_moves(self.model, boards, 1)]
+        roots = policy_top_moves(self.model, boards, self.top_k) if self.top_k is not None else None
+        return [best for best, _ in search_many(boards, self.depth, self.evaluate, roots)]
 
     def __call__(self, board):
-        board = np.asarray(board, dtype=np.int8).reshape(64)
-        best, _ = search(board, self.depth, self.evaluate, self.root_moves(board))
-        return best
+        return self.choose_many([board])[0]
