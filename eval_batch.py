@@ -11,6 +11,7 @@ Usage:
   python eval_batch.py -m r192x10_dagger -p 1,2,3 -e 200 --random-opening 8 --seed 42 \\
       --search-depth 2 --search-top-k 3
   python eval_batch.py -m r192x10_dagger -p 2 -e 150 --start-positions opening_positions.npy
+  python eval_batch.py -m r192x10_bc_epoch{05,10,15,20}_CNN_test -p 2 -e 200 --random-opening 8 --seed 42
 """
 
 import argparse
@@ -27,7 +28,8 @@ from util.util import get_device
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("-m", "--model", required=True, help="model name (as for sb-play.py, no models/ or .zip)")
+    parser.add_argument("-m", "--model", required=True, nargs="+",
+                        help="model name(s) as for sb-play.py (no models/ or .zip); several = a learning curve")
     parser.add_argument("-p", "--depths", default="2", help="comma-separated Edax depths")
     parser.add_argument("-e", "--episodes", type=int, default=200)
     parser.add_argument("--random-opening", type=int, default=0)
@@ -42,19 +44,20 @@ def main():
                      "use --random-opening N or --start-positions FILE")
 
     device = get_device() if args.device == "auto" else args.device
-    model = MaskablePPO.load(f"models/{args.model}", env=build_reversi("Random"), device=device)
-    player = SearchPlayer(model, depth=args.search_depth, top_k=args.search_top_k)
     positions = np.load(args.start_positions) if args.start_positions else None
     starts = sb_play_starts(args.episodes, args.random_opening, args.seed, positions)
     mode = "top move" if args.search_depth == 0 else \
         f"search depth {args.search_depth}" + (f" top {args.search_top_k}" if args.search_top_k else "")
-    for depth in (int(d) for d in args.depths.split(",")):
-        t = time.time()
-        diffs = play_vs_edax(player.choose_many, starts, depth)
-        wins, draws = int((diffs > 0).sum()), int((diffs == 0).sum())
-        print(f"{args.model} | {mode} | edax-{depth}: Black wins: {100 * wins / len(diffs)}% "
-              f"({wins} wins, {draws} draws, {len(diffs) - wins - draws} losses, "
-              f"{time.time() - t:.0f}s)", flush=True)
+    for name in args.model:
+        model = MaskablePPO.load(f"models/{name}", env=build_reversi("Random"), device=device)
+        player = SearchPlayer(model, depth=args.search_depth, top_k=args.search_top_k)
+        for depth in (int(d) for d in args.depths.split(",")):
+            t = time.time()
+            diffs = play_vs_edax(player.choose_many, starts, depth)
+            wins, draws = int((diffs > 0).sum()), int((diffs == 0).sum())
+            print(f"{name} | {mode} | edax-{depth}: Black wins: {100 * wins / len(diffs)}% "
+                  f"({wins} wins, {draws} draws, {len(diffs) - wins - draws} losses, "
+                  f"{time.time() - t:.0f}s)", flush=True)
 
 
 if __name__ == "__main__":

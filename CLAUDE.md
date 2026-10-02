@@ -49,6 +49,22 @@ including positions the model itself reaches; see "Edax labels" below.
   the CNN is 4.8M). The policy class is saved in the zip, so `sb-train.py`/`sb-play.py` load it as-is
 - Used with MaskablePPO's `CnnPolicy` and `normalize_images=False`
 
+#### Network size: channels x blocks (e.g. 192x10)
+- **Channels** (128, 192, 256) = width: how many learned features describe each of the 64 squares
+  after the input layer (e.g. "stable edge stone", "flippable along a diagonal").
+- **Blocks** (8, 10, 12) = depth: residual blocks of two 3x3 convolutions. Each convolution lets a
+  square's features absorb its 8 neighbours, so information travels 2 squares per block; 8 blocks
+  already span the board. More blocks = more chained reasoning steps (this flip opens that diagonal,
+  which gives up a corner).
+- Parameters ~ 18 x blocks x channels^2 (compute per position scales the same way): 128x8 2.4M,
+  192x10 6.7M, 256x8 9.4M, 256x12 14.2M. Doubling channels costs 4x, doubling blocks 2x. Training
+  speed on the M4 Max (batch 256): 128x8 45 batches/s, 192x10 18 batches/s.
+- Width vs depth: wide layers use a GPU more efficiently and are faster for single-position play
+  (fewer sequential layers); depth suits chained tactics. Game networks usually grow both (AlphaZero:
+  256 channels, 20-40 blocks for 19x19 Go). 128x8 -> 192x10 grew both and was the biggest single
+  gain so far, so which one mattered is unknown; a same-compute comparison (e.g. 256x8 vs 192x14,
+  both ~9.4M) would tell. We went straight to 256x12 (grow both).
+
 ### Training System (`sb-train.py`)
 - MaskablePPO (sb3-contrib) with action masking, TensorBoard logging, and checkpoints
 - `--mode` selects the opponent mix: `random`, `selfplay` (vs a periodically refreshed copy of
@@ -258,6 +274,34 @@ before any `-o Edax` play or `edax-curriculum` training: `uv run python edax_ser
 
 ## Training History & Status
 
+### Train of reasoning (2026-09-23 -> 2026-10-02)
+Each step: what we saw -> what we concluded -> what we did. Details and numbers are in the sections below.
+1. **Old CNN critique** (`cnn_critique_2026-09-26.md`): most parameters in one FC layer, raw +-1
+   input, no symmetry use -> added 5 input planes + 8-fold augmentation (BC val loss 1.270 -> 1.155,
+   no overfitting) -> ResNet with spatial heads (64x6 matched the CNN with 1/10 the parameters; 128x8
+   clearly better).
+2. **RL vs Edax looked great but generalized to nothing** (0% at every untrained depth) -> tested from
+   random openings: every RL model, including the old best, collapsed to ~0% -> the "wins" were
+   memorized lines against a near-deterministic Edax from the standard opening. -> Evaluate from
+   random/named openings; train from varied real-game start positions.
+3. **Varied-start PPO gained once, then plateaued** (1M -> 5M steps: no gain, even head-to-head vs
+   itself) -> profiling and fixing rollout speed (planes, distribution checks, `--n-envs`) didn't change
+   that; also found and fixed a self-play opponent that never refreshed.
+4. **Top-move evaluation** (instead of sampling) showed PPO had actually *degraded* best play while
+   the sampled numbers looked flat; the BC model was strongest. -> Stop PPO.
+5. **Search with the PPO value head made play much worse**: the value head couldn't rank sibling
+   positions (value regret 4.7 discs vs policy 1.9). -> Need better teaching targets.
+6. **Edax labels** (its move and score for every legal move, depth 12, ~170 positions/s): supervised
+   fine-tuning with graded targets steadily improved play (Edax-2 29.5% -> 44% from random openings
+   with 2.2M labels) and the value head (regret 4.7 -> 2.8), and search turned from harmful to helpful.
+7. **DAgger** (label positions the model itself reaches): little change to the bare policy, but a
+   better value head -> stronger search (53.5% vs Edax-2).
+8. **Bigger network (192x10)**: policy regret 1.70 -> 1.46, value regret 2.4 -> 1.8; with depth-2
+   search 74% vs Edax-2, 55% vs Edax-3, 44% vs Edax-4 from random openings. -> Capacity was a limit;
+   running 256x12.
+9. **Engineering along the way:** batched lockstep evaluation (~40 min -> ~2.5 min per evaluation),
+   fp16 tested and dropped (same moves, no speedup), portable device selection.
+
 Authoritative logs: `exax_pretrain_steps.doc` (25 numbered steps: exact commands and Edax win
 rates after each), `edax_train_results.csv`, `edax_bc_pretrained_training.csv` (BC curves),
 `status_summary_2026-09-23.md` (analysis and suggested next steps), `session_notes.md` (earlier
@@ -410,6 +454,14 @@ graded Edax labels (3.2M, 6 epochs) -> `r192x10_edax`, then a DAgger round (+1M 
 | `edax_dagger1` (128x8) | 70 / 37 / 26, named 84.7 / 56.7 / 28.7 | - / 53.5 / 36.5 / -, named - / 59.3 / 37.3 / - |
 | `r192x10_edax` | 77.5 / 45 / 30.5, named 91.3 / 61.3 / 35.3 | 85.5 / 74 / 49 / 29, named 96.7 / 80 / 56.7 / 30.7 |
 | **`r192x10_dagger`** | 82 / 43 / 30, named 86.7 / 55.3 / 40 | **92.5 / 71 / 52.5 / 37.5**, named **96 / 80.7 / 60 / 38** |
+
+BC learning curve by play (`r192x10_bc_epochNN`, top move, `eval_batch.py -m` several models):
+most strength arrives by epoch ~8-10 (random-opening Edax-2: 24% at epoch 2, 37.5 at 6, ~35-40 from
+10 to 20); after that random openings stay flat while named openings keep improving (Edax-2 42 ->
+59% from epoch 10 to 20), i.e. late BC epochs sharpen play in master-game-like positions. With the
+cosine schedule the tail of the loss curve always flattens, so "still improving?" is judged by
+evaluating per-epoch checkpoints (`edax_train.py` now saves `{model}_epochNN` too) or by comparing
+runs of different lengths, not by the last epochs' loss.
 
 Re-measured with `eval_batch.py` (the reference from now on), `r192x10_dagger` with search wins
 88 / 74 / 55 / 44% (random) and 98 / 86.7 / 66.7 / 36% (named) vs Edax-1/2/3/4; top move unchanged.

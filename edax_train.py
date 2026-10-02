@@ -200,6 +200,9 @@ def main():
             total, n = total + loss.item(), n + 1
         print(f"epoch {epoch + 1}: train loss {total / n:.4f}  val {evaluate(policy, val, device, args.value_scale)}",
               flush=True)
+        if args.model:
+            # every epoch's model, so play strength can be evaluated along the way (eval_batch.py)
+            model.save(f"models/{args.model}_epoch{epoch + 1:02d}_CNN_test")
 
     if args.model:
         if args.freeze_trunk:
