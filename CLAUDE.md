@@ -17,9 +17,9 @@ Edax up to depth 6 almost every game from the standard opening but hits a wall a
 **from randomized openings it wins ~0%**: its Edax results were memorized lines, not playing
 strength (see "Memorization finding" below). Measure progress from random openings.
 
-**Current direction (2026-10-01):** the strongest model is `edax2m_graded` (BC-only 128x8
-fine-tuned on all 2.2M dataset positions labeled by Edax at depth 12, graded targets; top move from
-random openings: 68% vs Edax-1, 44% vs Edax-2, 23% vs Edax-3). PPO so far degraded best play. Next: more Edax labels,
+**Current direction (2026-10-02):** the strongest model is `r192x10_dagger` (ResNet 192x10 from
+`train_course.sh`: BC -> Edax depth-12 labels -> one DAgger round). Played with depth-2 search over
+its top 3 moves it wins 71% vs Edax-2, 52.5% vs Edax-3 and 37.5% vs Edax-4 from random openings. PPO so far degraded best play. Next: more Edax labels,
 including positions the model itself reaches; see "Edax labels" below.
 
 ## Key Architecture Components
@@ -388,6 +388,22 @@ labels them; `edax_train.py --labels` takes several files (repeats dropped).
 A 100k-label pilot gained ~2-3 points. The value head predicts Edax scores well (MSE 0.25 -> 0.07)
 but still ranks sibling moves far worse than the policy (3.3 vs 1.8 discs lost per move), so search
 is still not expected to help.
+
+**ResNet 192x10 course (2026-10-02, `./train_course.sh r192x10 192 10 edax_dagger1`, log
+`course_r192x10.log`):** BC 20 epochs (val acc 62.5%, val loss 0.964 vs 1.003 for 128x8), then
+graded Edax labels (3.2M, 6 epochs) -> `r192x10_edax`, then a DAgger round (+1M positions it reached)
+-> `r192x10_dagger`. Validation: policy regret 1.46 discs, value regret 1.83 (128x8 `edax_dagger1`:
+1.70 / 2.41). Win % vs Edax, random openings (200) / named (150):
+
+| Model | Top move E-1 / E-2 / E-3 | Search (d2, top 3) E-1 / E-2 / E-3 / E-4 |
+|---|---|---|
+| `edax_dagger1` (128x8) | 70 / 37 / 26, named 84.7 / 56.7 / 28.7 | - / 53.5 / 36.5 / -, named - / 59.3 / 37.3 / - |
+| `r192x10_edax` | 77.5 / 45 / 30.5, named 91.3 / 61.3 / 35.3 | 85.5 / 74 / 49 / 29, named 96.7 / 80 / 56.7 / 30.7 |
+| **`r192x10_dagger`** | 82 / 43 / 30, named 86.7 / 55.3 / 40 | **92.5 / 71 / 52.5 / 37.5**, named **96 / 80.7 / 60 / 38** |
+
+Head-to-head (top move, paired) vs `edax_dagger1`: `r192x10_edax` 60.2% random / 55.3% named,
+`r192x10_dagger` 66.2% / 58.3%. The bigger network raised both heads, and search now adds ~25-30
+points at Edax-2/3: with search, `r192x10_dagger` beats Edax-3 more often than not.
 
 **Rollout speed (profiled 2026-09-29, 128x8 on MPS):** vs Edax-2 111 steps/s, self-play 97 steps/s
 after vectorizing the legal-move planes and disabling torch.distributions argument checks (were 101 and
