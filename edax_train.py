@@ -32,6 +32,7 @@ from sb3_contrib import MaskablePPO
 from util.reversi import build_reversi
 from util.board_features import PERMS
 from util.search import play_move, legal_moves
+from util.util import get_device
 
 
 def load_labels(paths, val_frac, seed):
@@ -141,7 +142,7 @@ def main():
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("-lr", "--learning-rate", type=float, default=3e-5)
     parser.add_argument("--val-frac", type=float, default=0.05)
-    parser.add_argument("--device", default="mps")
+    parser.add_argument("--device", default="auto", help="auto = cuda, else mps, else cpu")
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
 
@@ -149,7 +150,8 @@ def main():
     if args.policy_target in ("graded", "score") and train["move_scores"] is None and args.train != "value":
         parser.error(f"--policy-target {args.policy_target} needs labels made with --every-move")
     env = build_reversi("Random")
-    model = MaskablePPO.load(f"models/{args.base}_CNN_test", env=env, device=args.device)
+    device = get_device() if args.device == "auto" else args.device
+    model = MaskablePPO.load(f"models/{args.base}_CNN_test", env=env, device=device)
     policy = model.policy
     device = policy.device
     print(f"{len(train['boards']):,} train / {len(val['boards']):,} val positions; base {args.base}")

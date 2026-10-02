@@ -22,6 +22,7 @@ from sb3_contrib import MaskablePPO
 from util.reversi import build_reversi
 from util.search import SearchPlayer
 from util.lockstep import sb_play_starts, play_vs_edax
+from util.util import get_device
 
 
 def main():
@@ -34,13 +35,14 @@ def main():
     parser.add_argument("--start-positions", default=None)
     parser.add_argument("--search-depth", type=int, default=0, help="0 = policy top move")
     parser.add_argument("--search-top-k", type=int, default=None)
-    parser.add_argument("--device", default="mps")
+    parser.add_argument("--device", default="auto", help="auto = cuda, else mps, else cpu")
     args = parser.parse_args()
     if not (args.random_opening or args.start_positions):
         parser.error("deterministic play from the standard opening replays one game; "
                      "use --random-opening N or --start-positions FILE")
 
-    model = MaskablePPO.load(f"models/{args.model}", env=build_reversi("Random"), device=args.device)
+    device = get_device() if args.device == "auto" else args.device
+    model = MaskablePPO.load(f"models/{args.model}", env=build_reversi("Random"), device=device)
     player = SearchPlayer(model, depth=args.search_depth, top_k=args.search_top_k)
     positions = np.load(args.start_positions) if args.start_positions else None
     starts = sb_play_starts(args.episodes, args.random_opening, args.seed, positions)

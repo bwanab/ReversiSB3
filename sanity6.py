@@ -1,5 +1,5 @@
 import numpy as np
-from util.util import render, mask_fn, get_model, get_action
+from util.util import render, mask_fn, get_model, get_action, get_device
 from util.reversi import build_reversi
 from util.reversi_cnn import ReversiCNN
 
@@ -14,7 +14,7 @@ test_board = np.array([[[ 1, -1, -1,  1,  1,  1,  1,  1],
 
 def sanity6():
     env = build_reversi()
-    model = get_model("models/dork8_CNN_test", env, device="mps")
+    model = get_model("models/dork8_CNN_test", env, device=get_device())
     _, _ = env.reset()
     env.board = test_board
     action, _, _ = get_action(model, env.board, mask_fn(env), verbose = True)

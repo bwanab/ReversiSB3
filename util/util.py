@@ -36,10 +36,10 @@ def get_device():
     str
         Device string: "mps", "cuda", or "cpu"
     """
-    if th.backends.mps.is_available():
-        return "mps"
-    elif th.cuda.is_available():
+    if th.cuda.is_available():
         return "cuda"
+    elif th.backends.mps.is_available():
+        return "mps"
     else:
         return "cpu"
 

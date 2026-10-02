@@ -447,14 +447,15 @@ their pickled `clip_range`/`lr_schedule` can't be deserialized on Python 3.14; S
 (`code() argument 13 must be str, not int`) and falls back to clip_range 0.2. Resuming training
 from such a model needs `custom_objects={"clip_range": 0.1, ...}` in the load.
 
-## Device Support
+## Device Support and Portability
 
-The training system automatically detects and uses:
-- Apple Silicon GPU (MPS) if available
-- CUDA GPU if available
-- CPU as fallback
-
-Device selection is handled in `sb-train.py` and passed to model creation.
+Goal: the code should move to other systems (e.g. Linux with an NVIDIA GPU/CUDA). Device selection
+is automatic everywhere (`util/util.py:get_device()`, `--device auto` in `bc_train.py`,
+`edax_train.py`, `eval_batch.py`, `collect_positions.py`): CUDA if available, else Apple MPS, else
+CPU. Nothing in the Python code is macOS-specific. The Edax engine is: `libedax.dylib` is built for
+macOS (with the `SDKROOT` override, see Edax above); a Linux machine needs a shared-library build
+of the same fork (`bwanab/edax-reversi`, `src/edax_wrapper.c`) and the library path in
+`util/edax_engine.py` (not yet done). Unix sockets (Edax server) work the same on Linux.
 
 ## Testing
 

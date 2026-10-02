@@ -27,6 +27,7 @@ from sb3_contrib import MaskablePPO
 from util.reversi import build_reversi
 from util.search import legal_moves, play_move
 from util.edax_client import EdaxClient
+from util.util import get_device
 
 
 def standard_board():
@@ -83,11 +84,13 @@ def main():
     parser.add_argument("--parallel-games", type=int, default=256)
     parser.add_argument("--exclude", nargs="*", default=[], help="label files whose positions to skip")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--device", default="auto", help="auto = cuda, else mps, else cpu")
     parser.add_argument("-o", "--output", required=True)
     args = parser.parse_args()
 
     rng = np.random.default_rng(args.seed)
-    model = MaskablePPO.load(f"models/{args.model}_CNN_test", env=build_reversi("Random"), device="mps")
+    model = MaskablePPO.load(f"models/{args.model}_CNN_test", env=build_reversi("Random"),
+                             device=get_device() if args.device == "auto" else args.device)
     policy = model.policy
     policy.set_training_mode(False)
     edax = EdaxClient()

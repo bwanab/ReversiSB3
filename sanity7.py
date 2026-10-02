@@ -1,11 +1,11 @@
 import numpy as np
-from util.util import render, mask_fn, get_model, get_action, WHITE, BLACK
+from util.util import render, mask_fn, get_model, get_action, WHITE, BLACK, get_device
 from util.reversi import build_reversi
 from util.reversi_cnn import ReversiCNN
 from util.opponents import get_opponent
 
 def sanity7(env):
-    model = get_model("models/dork8_CNN_test", env, device="mps")
+    model = get_model("models/dork8_CNN_test", env, device=get_device())
     _, _ = env.reset()
     while True:
         action, _, _ = get_action(model, env.board, mask_fn(env), verbose = True)

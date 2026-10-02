@@ -18,12 +18,12 @@ from stable_baselines3.common.logger import configure
 from stable_baselines3.common.callbacks import BaseCallback, EveryNTimesteps, CheckpointCallback
 
 # Setup device
-if torch.backends.mps.is_available():
-    device = "mps"
-    print("✓ MPS (Apple Silicon GPU) is available and will be used")
-elif torch.cuda.is_available():
+if torch.cuda.is_available():
     device = "cuda"
     print("✓ CUDA GPU is available and will be used")
+elif torch.backends.mps.is_available():
+    device = "mps"
+    print("✓ MPS (Apple Silicon GPU) is available and will be used")
 else:
     device = "cpu"
     print("✓ Using CPU")
