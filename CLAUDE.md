@@ -309,6 +309,11 @@ Each step: what we saw -> what we concluded -> what we did. Details and numbers 
 11. **Depth-3 search**: +20-25 points vs Edax-4 from named openings (`r256x12_edax` 69%), nothing from
    random openings. -> The value head on unfamiliar positions limits deeper search. Next: DAgger from
    random openings played with search, deeper Edax labels, pruning at every search level.
+12. **Search pruned at every level** (policy's top 3 at each node): strength rises steadily with depth
+   from random *and* named openings (Edax-4 ~40% -> ~70% at depth 5) and runs faster than root-only
+   depth 3. -> The random-opening problem was searching implausible lines, not the value head. Search
+   depth is now the strongest lever; DAgger-for-search (2) and a deeper teacher (3) wait. Next:
+   measure vs Edax 5-8 with depths 5-6.
 
 Authoritative logs: `exax_pretrain_steps.doc` (25 numbered steps: exact commands and Edax win
 rates after each), `edax_train_results.csv`, `edax_bc_pretrained_training.csv` (BC curves),
@@ -500,6 +505,23 @@ From named (master-like) openings depth 3 gains +20-25 points vs Edax-4; from ra
 nothing (192x10: clearly worse). Reading: where the value head is accurate (familiar positions),
 deeper search converts it into strength; in unfamiliar positions deeper search amplifies its errors.
 Depth-3 runs take ~25x longer than depth 2 (Python tree code, ~263 leaves/position).
+
+**Search pruned at every level** (`--search-top-k 3 --search-prune-all`: each node searches only the
+policy's top 3 moves; win %, random E-2/3/4 | named E-2/3/4; seconds per 200/150-game run):
+
+| Model / search | Random | Named | s/run |
+|---|---|---|---|
+| `r256x12_edax` d2 root-only | 76 / 49.5 / 39.5 | 88 / 69.3 / 44.7 | 22 |
+| `r256x12_edax` d3 root-only | 73 / 54.5 / 40 | 87.3 / 78 / 69.3 | 482 |
+| `r256x12_edax` d3 every level | 80 / 66 / 49 | 88 / 72 / 68.7 | 33 |
+| `r256x12_edax` d4 every level | 85.5 / 75 / 61.5 | 93.3 / 90.7 / 78.7 | 103 |
+| `r256x12_edax` d5 every level | 88 / 79.5 / 70 | 98.7 / 92 / 82 | 302 |
+| `r256x12_dagger` d3 / d4 / d5 every level | 80.5 / 69 / 57; 88.5 / 75.5 / 65.5; 92 / 81.5 / 72.5 | 88 / 74 / 66; 96 / 79.3 / 75.3; 97.3 / 84 / 74 | |
+
+Strength keeps rising with depth from random openings too (Edax-4: ~40% at d2 -> ~70% at d5), and
+pruned search is far faster than root-only. The random-opening failure of root-only depth 3 came from
+searching implausible replies, which let the value head's occasional overrating of odd positions
+decide; with the policy restricting each level to plausible moves, deeper search helps everywhere.
 
 **Rollout speed (profiled 2026-09-29, 128x8 on MPS):** vs Edax-2 111 steps/s, self-play 97 steps/s
 after vectorizing the legal-move planes and disabling torch.distributions argument checks (were 101 and
