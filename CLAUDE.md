@@ -301,6 +301,14 @@ Each step: what we saw -> what we concluded -> what we did. Details and numbers 
    running 256x12.
 9. **Engineering along the way:** batched lockstep evaluation (~40 min -> ~2.5 min per evaluation),
    fp16 tested and dropped (same moves, no speedup), portable device selection.
+10. **Even bigger network (256x12, 14.2M)**: every validation metric ~5-10% better (policy regret
+   1.40, value regret 1.64) and top-move play vs Edax-2 up ~8-12 points, but with search roughly a
+   tie with 192x10 and only ~54% head-to-head. Per-epoch play curves show the Edax stage converging by
+   epoch 3-5. -> Network size and stage length are no longer the main limit; the teacher (Edax depth
+   12) and our own search depth are.
+11. **Depth-3 search**: +20-25 points vs Edax-4 from named openings (`r256x12_edax` 69%), nothing from
+   random openings. -> The value head on unfamiliar positions limits deeper search. Next: DAgger from
+   random openings played with search, deeper Edax labels, pruning at every search level.
 
 Authoritative logs: `exax_pretrain_steps.doc` (25 numbered steps: exact commands and Edax win
 rates after each), `edax_train_results.csv`, `edax_bc_pretrained_training.csv` (BC curves),
@@ -469,6 +477,29 @@ Re-measured with `eval_batch.py` (the reference from now on), `r192x10_dagger` w
 Head-to-head (top move, paired) vs `edax_dagger1`: `r192x10_edax` 60.2% random / 55.3% named,
 `r192x10_dagger` 66.2% / 58.3%. The bigger network raised both heads, and search now adds ~25-30
 points at Edax-2/3: with search, `r192x10_dagger` beats Edax-3 more often than not.
+
+**ResNet 256x12 course (2026-10-03, `./train_course.sh r256x12 256 12 r192x10_dagger`, log
+`course_r256x12.log`):** BC val loss 0.958 / acc 63.2% (192x10: 0.964 / 62.5%). Validation policy /
+value regret: `_edax` 1.45 / 1.77, `_dagger` 1.40 / 1.64 (192x10: 1.52 / 2.00 and 1.46 / 1.83).
+Win % vs Edax (`eval_batch.py`), random / named openings:
+
+| Model | Top move E-2 | Top move E-3 | Search E-2 | Search E-3 | Search E-4 |
+|---|---|---|---|---|---|
+| `r192x10_dagger` | 43 / 55.3 | 30 / 40 | 74 / 86.7 | 55 / 66.7 | 44 / 36 |
+| `r256x12_edax` | 54.5 / 62.7 | 31.5 / 36.7 | 76 / 88 | 49.5 / 69.3 | 39.5 / 44.7 |
+| `r256x12_dagger` | 50.5 / 67.3 | 27 / 46 | 73.5 / 84 | 56 / 67.3 | 41 / 38 |
+
+Head-to-head vs `r192x10_dagger` (top move): `_edax` 51.7% / 43.5%, `_dagger` 51.9% / 57.5%.
+Per-epoch curves (top move and search) rise through epoch 3-5 of each Edax stage, then level off.
+
+**Depth-3 vs depth-2 search (top 3 root moves; win %, random E-2/3/4 | named E-2/3/4):**
+`r192x10_dagger` d2 74 / 55 / 44 | 86.7 / 66.7 / 36, d3 65.5 / 47.5 / 28 | 92.7 / 66.7 / 56;
+`r256x12_dagger` d2 73.5 / 56 / 41 | 84 / 67.3 / 38, d3 74.5 / 57 / 40.5 | 88 / 70.7 / 62;
+`r256x12_edax` d2 76 / 49.5 / 39.5 | 88 / 69.3 / 44.7, d3 73 / 54.5 / 40 | 87.3 / 78 / 69.3.
+From named (master-like) openings depth 3 gains +20-25 points vs Edax-4; from random openings it gains
+nothing (192x10: clearly worse). Reading: where the value head is accurate (familiar positions),
+deeper search converts it into strength; in unfamiliar positions deeper search amplifies its errors.
+Depth-3 runs take ~25x longer than depth 2 (Python tree code, ~263 leaves/position).
 
 **Rollout speed (profiled 2026-09-29, 128x8 on MPS):** vs Edax-2 111 steps/s, self-play 97 steps/s
 after vectorizing the legal-move planes and disabling torch.distributions argument checks (were 101 and
