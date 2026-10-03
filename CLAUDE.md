@@ -585,6 +585,17 @@ bad masking, wrong initial moves). Those were bugs in the tests, not the env, an
 
 ## Deferred Work
 
+### Training on an NVIDIA GPU (e.g. B200), back burner since 2026-10-03
+Intent: possibly move training to a large NVIDIA GPU. Rough estimates (untested): BC/Edax-label
+training ~3-5x faster with the code as is (fp32, batch 256, numpy augmentation per batch), ~10-30x
+with tuning (bf16/TF32 mixed precision for the tensor cores, batches of 2-4k, augmentation on the
+GPU, maybe `torch.compile`); Edax labeling is CPU-bound and scales with the host's core count, not
+the GPU; search evaluation gains on the network part (CUDA's per-call overhead is far below MPS's
+~4.5 ms) but not on the Python tree code. The 256x12 course (~22 h here) might take ~6-10 h as is,
+~2-3 h tuned. Before committing: build the Edax library for Linux (see Device Support), then time one
+BC epoch and one Edax-stage epoch on a cheaper rented GPU (A100/H100/L4). A bf16 training test on the
+M4 Max would also show whether the mixed-precision tuning is worth doing.
+
 ### Bigger network, and search with the Edax-trained value head (deferred 2026-10-01)
 - A larger trunk than 128x8 (it showed no overfitting on BC or the Edax labels), to absorb a
   stronger teacher.
