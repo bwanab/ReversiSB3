@@ -180,5 +180,55 @@ class TestBatchedSearch(unittest.TestCase):
         self.assertTrue(all(len(legal_moves(x)) for x in a))
 
 
+class TestPrunedSearch(unittest.TestCase):
+    """search_many_pruned: identical to search_many when nothing is pruned, and equal to a
+    brute-force pruned negamax built from env calls when it is."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.positions = [b for b in sample_positions(n_games=5, seed=11) if len(legal_moves(b))][::4]
+
+    def test_no_pruning_matches_search_many(self):
+        from util.search import search_many_pruned
+        all_moves = lambda boards, k: [legal_moves(b) for b in boards]
+        for depth in (1, 2, 3):
+            pruned = search_many_pruned(self.positions, depth, disc_eval, all_moves, 64)
+            full = search_many(self.positions, depth, disc_eval)
+            for (b1, s1), (b2, s2) in zip(pruned, full):
+                self.assertEqual(set(s1), set(s2))
+                for m in s1:
+                    self.assertAlmostEqual(s1[m], s2[m], places=9)
+
+    def test_pruning_matches_reference(self):
+        """Keep the first k legal moves at every node (a deterministic stand-in for the policy)."""
+        from util.search import search_many_pruned
+        first_k = lambda boards, k: [legal_moves(b)[:k] for b in boards]
+
+        def ref(board, depth, k):
+            moves = env_moves(board)
+            if len(moves) == 0:
+                if len(env_moves(-board)) == 0:
+                    return float(np.sign((board == 1).sum() - (board == -1).sum()))
+                return -ref(-board, depth, k)
+            if depth == 0:
+                return float(disc_eval(board[None])[0])
+            return max(-ref(env_play(board, m), depth - 1, k) for m in moves[:k])
+
+        for depth, k in ((2, 2), (3, 2), (3, 3)):
+            for b, (best, scores) in zip(self.positions, search_many_pruned(self.positions, depth, disc_eval, first_k, k)):
+                self.assertEqual(set(scores), set(int(m) for m in env_moves(b)[:k]))
+                for m, sc in scores.items():
+                    self.assertAlmostEqual(sc, -ref(env_play(b, m), depth - 1, k), places=9)
+
+    def test_search_player_prune_all(self):
+        import tempfile
+        from util.util import get_model
+        with tempfile.TemporaryDirectory() as d:
+            model = get_model(os.path.join(d, "m"), ENV, model_type="resnet", channels=8, blocks=1)
+        player = SearchPlayer(model, depth=3, top_k=2, prune_all=True)
+        for b, m in zip(self.positions, player.choose_many(self.positions)):
+            self.assertIn(m, set(int(x) for x in legal_moves(b)))
+
+
 if __name__ == '__main__':
     unittest.main()

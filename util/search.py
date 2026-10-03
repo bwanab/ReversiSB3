@@ -93,6 +93,57 @@ def search_many(boards, depth, evaluate, root_moves=None):
     return results
 
 
+def search_many_pruned(boards, depth, evaluate, top_moves, k):
+    """Like search_many, but every node searches only its k best moves, chosen by
+    top_moves(list of boards, k) -> list of move arrays (e.g. the policy's top k), called once per
+    tree level for all nodes at that level. The tree grows level by level; leaves are scored in one
+    evaluate() call. Same rules as search_many (passes don't use depth, finished games exact);
+    with k >= the number of legal moves the scores are identical to search_many's.
+    Returns a list of (best_move, {move: score}) from each root side's perspective.
+    """
+    leaves = []
+
+    def resolve(node, board, remaining):
+        """Fill node in place unless it needs expanding; returns (node, board, remaining) if it does."""
+        if len(legal_moves(board)) == 0:
+            if len(legal_moves(-board)) == 0:
+                diff = int((board == 1).sum() - (board == -1).sum())
+                node[:] = ['X', float(np.sign(diff))]
+                return None
+            child = [None, None]
+            node[:] = ['P', child]
+            return resolve(child, -board, remaining)
+        if remaining == 0:
+            leaves.append(board)
+            node[:] = ['L', len(leaves) - 1]
+            return None
+        return node, board, remaining
+
+    roots = [[None, None] for _ in boards]
+    frontier = [(root, np.asarray(b, dtype=np.int8).reshape(64), depth) for root, b in zip(roots, boards)]
+    for _, b, _ in frontier:
+        assert len(legal_moves(b)) > 0, "search called on a position with no legal move"
+    while frontier:
+        chosen = top_moves([b for _, b, _ in frontier], k)
+        next_frontier = []
+        for (node, board, remaining), moves in zip(frontier, chosen):
+            children = []
+            for m in moves:
+                child = [None, None]
+                children.append((int(m), child))
+                pending = resolve(child, play_move(board, int(m)), remaining - 1)
+                if pending is not None:
+                    next_frontier.append(pending)
+            node[:] = ['N', children]
+        frontier = next_frontier
+    values = evaluate(np.array(leaves)) if leaves else np.zeros(0)
+    results = []
+    for root in roots:
+        scores = {m: -_score(child, values) for m, child in root[1]}
+        results.append((max(scores, key=scores.get), scores))
+    return results
+
+
 def search(board, depth, evaluate, root_moves=None):
     """Negamax to `depth` plies from `board` (side to move = 1); see search_many.
     Returns (best_move, {move: score}) with scores from the root side's perspective."""
@@ -136,11 +187,12 @@ class SearchPlayer:
     """Chooses moves for the model by searching `depth` plies with its value head (depth 0:
     the policy's top move).
 
-    top_k: if set, only the policy head's k most likely legal moves are searched at the root.
+    top_k: if set, only the policy head's k most likely legal moves are searched at the root
+    (with prune_all, at every node of the tree).
     """
 
-    def __init__(self, model, depth=2, top_k=None):
-        self.model, self.depth, self.top_k = model, depth, top_k
+    def __init__(self, model, depth=2, top_k=None, prune_all=False):
+        self.model, self.depth, self.top_k, self.prune_all = model, depth, top_k, prune_all
         self.evaluate = value_evaluator(model)
 
     def choose_many(self, boards):
@@ -149,6 +201,9 @@ class SearchPlayer:
         boards = [np.asarray(b, dtype=np.int8).reshape(64) for b in boards]
         if self.depth == 0:
             return [int(m[0]) for m in policy_top_moves(self.model, boards, 1)]
+        if self.prune_all and self.top_k is not None:
+            top_moves = lambda bs, k: policy_top_moves(self.model, bs, k)
+            return [best for best, _ in search_many_pruned(boards, self.depth, self.evaluate, top_moves, self.top_k)]
         roots = policy_top_moves(self.model, boards, self.top_k) if self.top_k is not None else None
         return [best for best, _ in search_many(boards, self.depth, self.evaluate, roots)]
 

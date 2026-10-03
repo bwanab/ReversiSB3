@@ -37,6 +37,8 @@ def main():
     parser.add_argument("--start-positions", default=None)
     parser.add_argument("--search-depth", type=int, default=0, help="0 = policy top move")
     parser.add_argument("--search-top-k", type=int, default=None)
+    parser.add_argument("--search-prune-all", action="store_true",
+                        help="apply --search-top-k at every node of the search tree, not only the root")
     parser.add_argument("--device", default="auto", help="auto = cuda, else mps, else cpu")
     args = parser.parse_args()
     if not (args.random_opening or args.start_positions):
@@ -47,10 +49,11 @@ def main():
     positions = np.load(args.start_positions) if args.start_positions else None
     starts = sb_play_starts(args.episodes, args.random_opening, args.seed, positions)
     mode = "top move" if args.search_depth == 0 else \
-        f"search depth {args.search_depth}" + (f" top {args.search_top_k}" if args.search_top_k else "")
+        f"search depth {args.search_depth}" + (f" top {args.search_top_k}" if args.search_top_k else "") + \
+        (" every level" if args.search_prune_all else "")
     for name in args.model:
         model = MaskablePPO.load(f"models/{name}", env=build_reversi("Random"), device=device)
-        player = SearchPlayer(model, depth=args.search_depth, top_k=args.search_top_k)
+        player = SearchPlayer(model, depth=args.search_depth, top_k=args.search_top_k, prune_all=args.search_prune_all)
         for depth in (int(d) for d in args.depths.split(",")):
             t = time.time()
             diffs = play_vs_edax(player.choose_many, starts, depth)

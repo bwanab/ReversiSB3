@@ -23,7 +23,8 @@ def play_games(file,
                seed=None,
                start_positions=None,
                search_depth=0,
-               search_top_k=None):
+               search_top_k=None,
+               search_prune_all=False):
     env = build_reversi(opponent=opponentName, verbose=verbose, opponent_model=opponent_model, depth=depth)
     #opponent = get_opponent(opponentName, file=file, env=env)
 
@@ -31,7 +32,8 @@ def play_games(file,
         env.opponent.deterministic = deterministic   # both models play the same way (top move or sampled)
     model = MaskablePPO.load(file, env=env)
     # model.policy = MaskableActorCriticPolicy.load(file + '_policy.zip')
-    chooser = SearchPlayer(model, depth=search_depth, top_k=search_top_k) if search_depth > 0 else None
+    chooser = SearchPlayer(model, depth=search_depth, top_k=search_top_k,
+                           prune_all=search_prune_all) if search_depth > 0 else None
     start_sequence = np.load(start_positions) if start_positions else None
     return play(model, num_games, None, deterministic, verbose,
                 random_opening_plies=random_opening, seed=seed, return_draws=True, chooser=chooser,
@@ -63,6 +65,8 @@ if __name__ == '__main__':
                              "head (0 = policy head as usual). Not used with -o Model")
     parser.add_argument("--search-top-k", type=int, default=None,
                         help="with --search-depth, search only the policy's top k moves at the root")
+    parser.add_argument("--search-prune-all", action="store_true",
+                        help="apply --search-top-k at every node of the search tree, not only the root")
     args = parser.parse_args()
 
     import time
@@ -118,7 +122,8 @@ if __name__ == '__main__':
                                 seed=args.seed,
                                 start_positions=args.start_positions,
                                 search_depth=args.search_depth,
-                                search_top_k=args.search_top_k)
+                                search_top_k=args.search_top_k,
+                                search_prune_all=args.search_prune_all)
         print(f"Black wins: {100 * black_wins / n_games}%")
 
     end = time.time()
