@@ -240,5 +240,24 @@ class TestPrunedSearch(unittest.TestCase):
             self.assertIn(m, set(int(x) for x in legal_moves(b)))
 
 
+class TestSearchCollection(unittest.TestCase):
+    """collect_positions.search_moves: the search's move, or (explore) a policy top-k move."""
+
+    def test_explore_extremes(self):
+        import tempfile
+        from util.util import get_model
+        from util.search import policy_top_moves
+        from collect_positions import search_moves
+        positions = [b for b in sample_positions(n_games=3, seed=13) if len(legal_moves(b))][::5]
+        with tempfile.TemporaryDirectory() as d:
+            model = get_model(os.path.join(d, "m"), ENV, model_type="resnet", channels=8, blocks=1)
+        player = SearchPlayer(model, depth=2, top_k=3, prune_all=True)
+        rng = np.random.default_rng(0)
+        self.assertEqual(search_moves(player, model, positions, 3, 0.0, rng), player.choose_many(positions))
+        tops = policy_top_moves(model, positions, 3)
+        for m, top in zip(search_moves(player, model, positions, 3, 1.0, rng), tops):
+            self.assertIn(m, set(int(x) for x in top))
+
+
 if __name__ == '__main__':
     unittest.main()

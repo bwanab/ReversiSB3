@@ -16,7 +16,7 @@ project's `.venv`) and never `pip install` anything.
 
 Run the checks relevant to what you were asked to verify; run all of them for a general check.
 
-1. **Test suite**: `./run_tests.sh`. Expect 146 tests, 0 failures, 0 errors. Single groups:
+1. **Test suite**: `./run_tests.sh`. Expect 147 tests, 0 failures, 0 errors. Single groups:
    `./run_tests.sh environment|scenarios|edge_cases|training|integration|bc|focused|training_issues|step|lr|features|resnet|play|starts|refresh|openings|mix|search`.
 2. **Sanity scripts**: `sanity1.py` through `sanity6.py` run non-interactively.
    - `sanity4.py` should print `check_env passed`.

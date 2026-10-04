@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 Collect the positions a model reaches in its own games (for DAgger: label them with Edax and
-add them to the training data).
+add them to the training data). The model either samples its moves from its policy or, with
+--search-depth, plays like the searching player (pruned search, with --explore randomness).
 
 Games run in lockstep so the model's moves for all of them go through one batched network call.
 The model samples its moves from its policy (for variety). Opponents per game: the model itself
@@ -25,7 +26,7 @@ import torch
 from sb3_contrib import MaskablePPO
 
 from util.reversi import build_reversi
-from util.search import legal_moves, play_move
+from util.search import legal_moves, play_move, SearchPlayer, policy_top_moves
 from util.edax_client import EdaxClient
 from util.util import get_device
 
@@ -61,6 +62,17 @@ class Game:
         self.model_to_move = model_to_move
 
 
+def search_moves(player, model, boards, k, explore, rng):
+    """The search's move for each board; with probability `explore` a random one of the policy's
+    top k instead (variety, since the search is deterministic)."""
+    moves = player.choose_many(boards)
+    explorers = [i for i in range(len(boards)) if rng.random() < explore]
+    if explorers:
+        for i, top in zip(explorers, policy_top_moves(model, [boards[i] for i in explorers], k)):
+            moves[i] = int(rng.choice(top))
+    return moves
+
+
 def sample_moves(policy, boards, rng):
     """Sample one move per board from the policy (masked to legal moves)."""
     obs = torch.as_tensor(np.stack(boards).reshape(-1, 1, 8, 8), dtype=torch.float32, device=policy.device)
@@ -85,6 +97,12 @@ def main():
     parser.add_argument("--exclude", nargs="*", default=[], help="label files whose positions to skip")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--device", default="auto", help="auto = cuda, else mps, else cpu")
+    parser.add_argument("--search-depth", type=int, default=0,
+                        help="choose the model's moves by search (pruned, --search-top-k at every level) "
+                             "instead of sampling from the policy; 0 = sample")
+    parser.add_argument("--search-top-k", type=int, default=3)
+    parser.add_argument("--explore", type=float, default=0.2,
+                        help="with --search-depth: chance per move of a random policy top-k move instead")
     parser.add_argument("-o", "--output", required=True)
     args = parser.parse_args()
 
@@ -93,6 +111,8 @@ def main():
                              device=get_device() if args.device == "auto" else args.device)
     policy = model.policy
     policy.set_training_mode(False)
+    player = SearchPlayer(model, depth=args.search_depth, top_k=args.search_top_k, prune_all=True) \
+        if args.search_depth > 0 else None
     edax = EdaxClient()
     opp_names, opp_weights = zip(*[(o.split(":")[0], float(o.split(":")[1])) for o in args.opponents.split(",")])
     opp_weights = np.array(opp_weights) / sum(opp_weights)
@@ -136,7 +156,10 @@ def main():
             key = g.board.tobytes()
             if key not in excluded:
                 seen.add(key)
-        for g, m in zip(model_games, sample_moves(policy, [g.board for g in model_games], rng)):
+        boards = [g.board for g in model_games]
+        chosen = search_moves(player, model, boards, args.search_top_k, args.explore, rng) if player \
+            else sample_moves(policy, boards, rng)
+        for g, m in zip(model_games, chosen):
             g.board = play_move(g.board, m)
             if g.opponent != "self":
                 g.model_to_move = False
