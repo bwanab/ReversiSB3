@@ -542,6 +542,14 @@ Vs stronger Edax (pruned search, top 3 every level; win %, random E-5/6/7/8 | na
 200-game run). So with depth-6 search the model plays about level with Edax-6/7 from positions it
 can't have memorized; Edax-8 (~32-37%) is the frontier. No Edax-7/8 cliff like the old model's.
 
+**Where deep search spends its time** (profiled 2026-10-04, `r256x12_dagger`, depth 6, top 3 every
+level, 200 mid-game positions in one batch, 196 ms/position): value calls 49%, policy calls 23%,
+Python tree code ~27% (legal-move generation 24%). At these batch sizes the GPU is compute-bound
+(~7,400 positions/s for 256x12), so faster tree code alone could give at most ~1.35x. fp16/bf16
+autocast gives no speedup on the M4 Max even at batch 16,384 (Apple's GPU runs fp16 at the fp32
+rate). Levers: fewer leaves (k=2 pruning), a smaller network for search, or more GPU (NVIDIA tensor
+cores in bf16 would speed exactly this part up).
+
 **Rollout speed (profiled 2026-09-29, 128x8 on MPS):** vs Edax-2 111 steps/s, self-play 97 steps/s
 after vectorizing the legal-move planes and disabling torch.distributions argument checks (were 101 and
 72). PPO updates are only ~10% of the time. What remains is mostly fixed MPS latency per forward call
@@ -613,7 +621,9 @@ the GPU; search evaluation gains on the network part (CUDA's per-call overhead i
 ~4.5 ms) but not on the Python tree code. The 256x12 course (~22 h here) might take ~6-10 h as is,
 ~2-3 h tuned. Before committing: build the Edax library for Linux (see Device Support), then time one
 BC epoch and one Edax-stage epoch on a cheaper rented GPU (A100/H100/L4). A bf16 training test on the
-M4 Max would also show whether the mixed-precision tuning is worth doing.
+M4 Max would also show whether the mixed-precision tuning is worth doing. (Measured 2026-10-04:
+fp16/bf16 autocast gives no inference speedup on the M4 Max, even compute-bound at batch 16,384;
+deep search is GPU compute-bound, ~72% of its time, which is where NVIDIA tensor cores would help.)
 
 ### Bigger network, and search with the Edax-trained value head (deferred 2026-10-01)
 - A larger trunk than 128x8 (it showed no overfitting on BC or the Edax labels), to absorb a
