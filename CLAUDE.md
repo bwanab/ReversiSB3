@@ -322,6 +322,11 @@ Each step: what we saw -> what we concluded -> what we did. Details and numbers 
    depth 3. -> The random-opening problem was searching implausible lines, not the value head. Search
    depth is now the strongest lever; DAgger-for-search (2) and a deeper teacher (3) wait. Next:
    measure vs Edax 5-8 with depths 5-6.
+13. **Vs Edax 5-8:** pruned depth 5 ~ Edax-6 level; depth 6 adds up to +20 points (on par with Edax-6/7,
+   ~35% vs Edax-8). (Found and fixed on the way: Apple MPS silently returns wrong values for network
+   calls over ~65k positions; calls are now chunked.) -> Depth is still paying off; each level costs
+   ~3x. Options: faster tree code (depth 7+ affordable), narrower pruning (k=2), or improving the
+   value head for the Edax-8 frontier (DAgger, deeper teacher).
 
 Authoritative logs: `exax_pretrain_steps.doc` (25 numbered steps: exact commands and Edax win
 rates after each), `edax_train_results.csv`, `edax_bc_pretrained_training.csv` (BC curves),
@@ -530,6 +535,12 @@ Strength keeps rising with depth from random openings too (Edax-4: ~40% at d2 ->
 pruned search is far faster than root-only. The random-opening failure of root-only depth 3 came from
 searching implausible replies, which let the value head's occasional overrating of odd positions
 decide; with the policy restricting each level to plausible moves, deeper search helps everywhere.
+
+Vs stronger Edax (pruned search, top 3 every level; win %, random E-5/6/7/8 | named E-5/6/7/8):
+`r256x12_edax` d5 65 / 42.5 / 36 / 27 | 58 / 57.3 / 35.3 / 24; `r256x12_dagger` d5 59.5 / 43 / 33 / 31.5 |
+71.3 / 46.7 / 38.7 / 32, **d6 65.5 / 50 / 47.5 / 36.5 | 80.7 / 67.3 / 59.3 / 32** (~15 min per
+200-game run). So with depth-6 search the model plays about level with Edax-6/7 from positions it
+can't have memorized; Edax-8 (~32-37%) is the frontier. No Edax-7/8 cliff like the old model's.
 
 **Rollout speed (profiled 2026-09-29, 128x8 on MPS):** vs Edax-2 111 steps/s, self-play 97 steps/s
 after vectorizing the legal-move planes and disabling torch.distributions argument checks (were 101 and
