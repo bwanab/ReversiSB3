@@ -150,15 +150,33 @@ def search(board, depth, evaluate, root_moves=None):
     return search_many([board], depth, evaluate, None if root_moves is None else [root_moves])[0]
 
 
-def policy_logits(model, boards):
-    """Policy logits (N, 64) for (N, 64) side-to-move boards, in one network call."""
+# Largest batch per network call. On Apple MPS, calls with more than ~65,535 positions silently
+# return wrong values (measured 2026-10-04: exact up to 50k, ~2/3 wrong at 100k, independent of
+# network width), so big batches are split; at these sizes chunking costs no speed.
+MAX_BATCH = 16384
+
+
+def _chunked(fn, boards, max_batch=None):
+    """fn applied to boards in chunks of at most max_batch (default MAX_BATCH), concatenated."""
+    max_batch = max_batch or MAX_BATCH
+    boards = np.asarray(boards)
+    if len(boards) <= max_batch:
+        return fn(boards)
+    return np.concatenate([fn(boards[i:i + max_batch]) for i in range(0, len(boards), max_batch)])
+
+
+def policy_logits(model, boards, max_batch=None):
+    """Policy logits (N, 64) for (N, 64) side-to-move boards (batched network calls)."""
     policy = model.policy
-    obs = torch.as_tensor(np.asarray(boards).reshape(-1, 1, 8, 8), dtype=torch.float32, device=policy.device)
-    policy.set_training_mode(False)
-    with torch.no_grad():
-        features = policy.extract_features(obs)
-        latent_pi, _ = policy.mlp_extractor(features)
-        return policy.action_net(latent_pi).cpu().numpy()
+
+    def logits(chunk):
+        obs = torch.as_tensor(chunk.reshape(-1, 1, 8, 8), dtype=torch.float32, device=policy.device)
+        policy.set_training_mode(False)
+        with torch.no_grad():
+            features = policy.extract_features(obs)
+            latent_pi, _ = policy.mlp_extractor(features)
+            return policy.action_net(latent_pi).cpu().numpy()
+    return _chunked(logits, boards, max_batch)
 
 
 def policy_top_moves(model, boards, k):
@@ -171,16 +189,16 @@ def policy_top_moves(model, boards, k):
     return out
 
 
-def value_evaluator(model):
+def value_evaluator(model, max_batch=None):
     """evaluate() backed by an SB3 policy's value head (side-to-move perspective, like the env)."""
     policy = model.policy
 
-    def evaluate(boards):
-        obs = torch.as_tensor(boards.reshape(-1, 1, 8, 8), dtype=torch.float32, device=policy.device)
+    def values(chunk):
+        obs = torch.as_tensor(chunk.reshape(-1, 1, 8, 8), dtype=torch.float32, device=policy.device)
         policy.set_training_mode(False)
         with torch.no_grad():
             return policy.predict_values(obs).reshape(-1).cpu().numpy()
-    return evaluate
+    return lambda boards: _chunked(values, boards, max_batch)
 
 
 class SearchPlayer:

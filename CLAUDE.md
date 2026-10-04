@@ -166,6 +166,14 @@ Options:
   moves. Always plays the best-scoring move, so compare it with the policy's top move (no `-d`), not
   only with sampling (`-d`). Not used with `-o Model`. Depth 2 costs ~70 ms per move (Python tree).
 
+**MPS batch limit (found 2026-10-04):** a network call with more than ~65,535 positions silently
+returns wrong values on Apple MPS (exact up to 50k; ~2/3 of values and ~88% of policy argmaxes
+wrong at 100k-146k; same threshold for 192 and 256 channels, so it's the batch dimension, not
+memory). `util/search.py` splits value and policy calls into chunks of `MAX_BATCH` = 16,384 (no
+speed cost). Pruned depth-6 search over 200 games had ~146k leaves per call, so the first depth-6
+results (~10-18% vs Edax 5-8) were garbage; depth <= 5 stayed under the limit. Keep any new
+large-batch inference chunked.
+
 **`eval_batch.py`** (2026-10-02) plays all games vs Edax in lockstep, batching the model's network
 calls (`util/lockstep.py`, `SearchPlayer.choose_many`, `search_many`): same options as sb-play for
 top move / `--search-depth`/`--search-top-k`, several Edax depths at once (`-p 1,2,3`), same starting
@@ -567,7 +575,7 @@ of the same fork (`bwanab/edax-reversi`, `src/edax_wrapper.c`) and the library p
 Run the suite with `./run_tests.sh` (all tests) or `./run_tests.sh <name>` for one group
 (`environment`, `scenarios`, `edge_cases`, `training`, `integration`, `bc`, `focused`,
 `training_issues`, `step`, `lr`, `features`, `resnet`, `play`, `starts`, `refresh`, `openings`, `mix`, `search`, ...).
-The script sets `PYTHONPATH` to the project root and runs through `uv run`. All 145 tests in `tests/`
+The script sets `PYTHONPATH` to the project root and runs through `uv run`. All 146 tests in `tests/`
 are part of the runner and pass. `test_edax_opponent.py`
 in the project root is a separate script that needs the Edax server running.
 

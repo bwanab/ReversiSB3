@@ -152,6 +152,16 @@ class TestBatchedSearch(unittest.TestCase):
                     self.assertAlmostEqual(scores[m], single[m], places=5)
             self.assertEqual(player.choose_many(self.positions), [best for best, _ in batched])
 
+    def test_chunked_network_calls(self):
+        """Network calls split into chunks give the same results as one call (the split guards
+        against MPS returning wrong values for batches over ~65k positions)."""
+        from util.search import policy_logits, value_evaluator
+        boards = np.array(self.positions * 3)
+        np.testing.assert_allclose(policy_logits(self.model, boards, max_batch=7),
+                                   policy_logits(self.model, boards), atol=1e-5)
+        np.testing.assert_allclose(value_evaluator(self.model, max_batch=5)(boards),
+                                   value_evaluator(self.model)(boards), atol=1e-5)
+
     def test_top_move_is_policy_argmax(self):
         from util.search import policy_logits
         player = SearchPlayer(self.model, depth=0)
