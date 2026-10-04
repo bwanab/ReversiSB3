@@ -327,6 +327,11 @@ Each step: what we saw -> what we concluded -> what we did. Details and numbers 
    calls over ~65k positions; calls are now chunked.) -> Depth is still paying off; each level costs
    ~3x. Options: faster tree code (depth 7+ affordable), narrower pruning (k=2), or improving the
    value head for the Edax-8 frontier (DAgger, deeper teacher).
+14. **Measured the search options:** at depth 6 the network is ~72% of search time (GPU compute-bound;
+   Python tree ~27%, so faster tree code caps at ~1.35x); fp16/bf16 gives no speedup on the M4 Max;
+   k=2 pruning is worse than k=3 at equal cost. -> On this hardware more search strength costs ~3x
+   per level; the cheaper lever is better networks. Next: DAgger played with search and a deeper Edax
+   teacher (the "2 and 3" from step 11).
 
 Authoritative logs: `exax_pretrain_steps.doc` (25 numbered steps: exact commands and Edax win
 rates after each), `edax_train_results.csv`, `edax_bc_pretrained_training.csv` (BC curves),
@@ -549,6 +554,14 @@ Python tree code ~27% (legal-move generation 24%). At these batch sizes the GPU 
 autocast gives no speedup on the M4 Max even at batch 16,384 (Apple's GPU runs fp16 at the fp32
 rate). Levers: fewer leaves (k=2 pruning), a smaller network for search, or more GPU (NVIDIA tensor
 cores in bf16 would speed exactly this part up).
+
+**k=2 vs k=3 pruning** (`r256x12_dagger`; random E-5/6/7/8 | named E-5/6/7/8 | seconds per run):
+k3 d5 59.5 / 43 / 33 / 31.5 | 71.3 / 46.7 / 38.7 / 32 | 309; k3 d6 65.5 / 50 / 47.5 / 36.5 |
+80.7 / 67.3 / 59.3 / 32 | 1491; k2 d6 47.5 / 38 / 29.5 / 23 | 66.7 / 41.3 / 30 / 20.7 | 104;
+k2 d7 48 / 37.5 / 31.5 / 24 | 65.3 / 42.7 / 30.7 / 24.7 | 212; k2 d8 54 / 40 / 34.5 / 30.5 |
+62.7 / 45.3 / 34.7 / 23.3 | 411. At equal cost (k2 d8 ~ k3 d5) k=2 is no better and worse from
+named openings: the policy's 3rd choice matters too often. Untested idea: prune by cumulative policy
+probability (e.g. 90%) instead of a fixed k (narrow where confident, wide where not).
 
 **Rollout speed (profiled 2026-09-29, 128x8 on MPS):** vs Edax-2 111 steps/s, self-play 97 steps/s
 after vectorizing the legal-move planes and disabling torch.distributions argument checks (were 101 and
