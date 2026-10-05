@@ -37,6 +37,8 @@ def main():
     parser.add_argument("--start-positions", default=None)
     parser.add_argument("--search-depth", type=int, default=0, help="0 = policy top move")
     parser.add_argument("--search-top-k", type=int, default=None)
+    parser.add_argument("--leaf-solve-empties", type=int, default=0,
+                        help="score search leaves with at most this many empty squares exactly (solver)")
     parser.add_argument("--solve-empties", type=int, default=0,
                         help="play positions with at most this many empty squares with the exact endgame solver")
     parser.add_argument("--search-prune-all", action="store_true",
@@ -53,11 +55,13 @@ def main():
     mode = "top move" if args.search_depth == 0 else \
         f"search depth {args.search_depth}" + (f" top {args.search_top_k}" if args.search_top_k else "") + \
         (" every level" if args.search_prune_all else "") + \
-        (f" + solver <= {args.solve_empties} empties" if args.solve_empties else "")
+        (f" + solver <= {args.solve_empties} empties" if args.solve_empties else "") + \
+        (f" + leaf solves <= {args.leaf_solve_empties}" if args.leaf_solve_empties else "")
     for name in args.model:
         model = MaskablePPO.load(f"models/{name}", env=build_reversi("Random"), device=device)
         player = SearchPlayer(model, depth=args.search_depth, top_k=args.search_top_k, prune_all=args.search_prune_all,
-                              solve_empties=args.solve_empties)
+                              solve_empties=args.solve_empties,
+                              leaf_solve_empties=args.leaf_solve_empties)
         for depth in (int(d) for d in args.depths.split(",")):
             t = time.time()
             diffs = play_vs_edax(player.choose_many, starts, depth)

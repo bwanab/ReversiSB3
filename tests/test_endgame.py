@@ -97,5 +97,16 @@ class TestEndgameSolver(unittest.TestCase):
             self.assertIn(m, set(int(x) for x in legal_moves(b)))
 
 
+    def test_solving_evaluator(self):
+        """Late leaves get tanh(exact score / 16); the others the wrapped evaluator's value."""
+        from util.search import solving_evaluator
+        late = [b for b in self.positions if (b == 0).sum() <= 8][:5]
+        early = [b for b in self.positions if (b == 0).sum() > 30][:3]
+        boards = np.array(early + late)
+        out = solving_evaluator(lambda bs: np.full(len(bs), 0.123), 8)(boards)
+        np.testing.assert_allclose(out[:len(early)], 0.123)
+        np.testing.assert_allclose(out[len(early):], np.tanh(np.array([brute(b) for b in late]) / 16.0))
+
+
 if __name__ == '__main__':
     unittest.main()

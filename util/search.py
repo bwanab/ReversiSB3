@@ -203,6 +203,31 @@ def value_evaluator(model, max_batch=None):
     return lambda boards: _chunked(values, boards, max_batch)
 
 
+LEAF_SCORE_SCALE = 16.0   # value targets are tanh(Edax score / 16) (edax_train.py --value-scale)
+
+
+def solving_evaluator(evaluate, max_empties, scale=LEAF_SCORE_SCALE):
+    """Wrap evaluate(): boards with at most max_empties empty squares are scored exactly by the
+    endgame solver, as tanh(score / scale) to match the value head's scale; the rest by evaluate.
+    Solves run in parallel threads (the C solver releases the GIL)."""
+    def mixed(boards):
+        boards = np.asarray(boards)
+        if len(boards) == 0:
+            return evaluate(boards)
+        late = (boards == 0).sum(axis=1) <= max_empties
+        out = np.empty(len(boards), dtype=np.float64)
+        if (~late).any():
+            out[~late] = evaluate(boards[~late])
+        if late.any():
+            from concurrent.futures import ThreadPoolExecutor
+            from util.endgame import solve
+            with ThreadPoolExecutor(max_workers=os.cpu_count()) as pool:
+                scores = [s for s, _, _ in pool.map(solve, list(boards[late]))]
+            out[late] = np.tanh(np.array(scores, dtype=np.float64) / scale)
+        return out
+    return mixed
+
+
 class SearchPlayer:
     """Chooses moves for the model by searching `depth` plies with its value head (depth 0:
     the policy's top move).
@@ -211,12 +236,15 @@ class SearchPlayer:
     (with prune_all, at every node of the tree).
     solve_empties: positions with at most this many empty squares are played by the exact endgame
     solver (util/endgame.py) instead; 0 = off.
+    leaf_solve_empties: search leaves with at most this many empty squares are scored exactly by the
+    solver instead of the value head; 0 = off.
     """
 
-    def __init__(self, model, depth=2, top_k=None, prune_all=False, solve_empties=0):
+    def __init__(self, model, depth=2, top_k=None, prune_all=False, solve_empties=0, leaf_solve_empties=0):
         self.model, self.depth, self.top_k, self.prune_all = model, depth, top_k, prune_all
         self.solve_empties = solve_empties
-        self.evaluate = value_evaluator(model)
+        value = value_evaluator(model)
+        self.evaluate = solving_evaluator(value, leaf_solve_empties) if leaf_solve_empties else value
 
     def choose_many(self, boards):
         """Best move for each of several boards, with one policy call (if top_k or depth 0)

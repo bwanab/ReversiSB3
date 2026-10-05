@@ -49,6 +49,8 @@ def main():
     parser.add_argument("--search-depth", type=int, default=0)
     parser.add_argument("--search-top-k", type=int, default=None)
     parser.add_argument("--search-prune-all", action="store_true")
+    parser.add_argument("--leaf-solve-empties", type=int, default=0,
+                        help="score search leaves with at most this many empty squares exactly (solver)")
     parser.add_argument("--solve-empties", type=int, default=0, help="exact endgame solver at <= N empties")
     parser.add_argument("--teacher-depth", type=int, default=14)
     parser.add_argument("-w", "--workers", type=int, default=12)
@@ -60,7 +62,8 @@ def main():
     device = get_device() if args.device == "auto" else args.device
     model = MaskablePPO.load(f"models/{args.model}", env=build_reversi("Random"), device=device)
     player = SearchPlayer(model, depth=args.search_depth, top_k=args.search_top_k, prune_all=args.search_prune_all,
-                          solve_empties=args.solve_empties)
+                          solve_empties=args.solve_empties,
+                              leaf_solve_empties=args.leaf_solve_empties)
     starts = sb_play_starts(args.episodes, args.random_opening, args.seed,
                             np.load(args.start_positions) if args.start_positions else None)
     moves = []                                    # (game, board, move)
