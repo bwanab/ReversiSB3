@@ -7,29 +7,33 @@
 #   4. evaluate: top move vs Edax 1-3, depth-5 top-3 pruned search vs Edax 2-8 (random and named
 #      openings, eval_batch.py), and a head-to-head vs REF
 #
-# Usage: ./dagger_round.sh OUT BASE PLAY_MODEL TEACHER_DEPTH [COLLECT_SEARCH_DEPTH] [REF]
+# Usage: [N=positions] [EMPTIES=min-max] ./dagger_round.sh OUT BASE PLAY_MODEL TEACHER_DEPTH [COLLECT_SEARCH_DEPTH] [REF]
 #   e.g. ./dagger_round.sh r256x12_sdag1 r256x12_bc r256x12_dagger 14 3 r256x12_dagger
+#        N=300000 EMPTIES=21-40 ./dagger_round.sh r256x12_mid1 r256x12_bc r256x12_sdag1 16 3 r256x12_sdag1
+#   N: positions to collect (default 1,000,000); EMPTIES: only collect positions in this range
 # Steps whose output exists are skipped. Log: dagger_OUT.log. Needs the Edax server for step 4.
 
 set -u
 OUT=$1; BASE=$2; PLAY=$3; TD=$4; SD=${5:-3}; REF=${6:-$PLAY}
+N=${N:-1000000}; RANGE=""
+[ -n "${EMPTIES:-}" ] && RANGE="--min-empties ${EMPTIES%-*} --max-empties ${EMPTIES#*-}"
 LOG=dagger_${OUT}.log
 POS=positions_${OUT}.npy
 LAB=labels_d${TD}_${OUT}_all.npz
 cd "$(dirname "$0")"
 say() { echo "[$(date '+%m-%d %H:%M')] $*" | tee -a $LOG; }
 
-say "DAgger round $OUT: play $PLAY with depth-$SD search, Edax depth-$TD labels, train from $BASE"
+say "DAgger round $OUT: play $PLAY with depth-$SD search, $N positions${EMPTIES:+ with $EMPTIES empties}, Edax depth-$TD labels, train from $BASE"
 if [ ! -f $POS ]; then
   say "1. collect"
-  uv run python collect_positions.py -m $PLAY -n 1000000 -o $POS --search-depth $SD --search-top-k 3 \
-      --explore 0.2 --opponents self:0.3,4:0.15,5:0.15,6:0.2,8:0.2 --exclude labels_d*_all.npz 2>&1 \
+  uv run python collect_positions.py -m $PLAY -n $N -o $POS --search-depth $SD --search-top-k 3 \
+      --explore 0.2 --opponents self:0.3,4:0.15,5:0.15,6:0.2,8:0.2 --exclude labels_d*_all.npz ${=RANGE} 2>&1 \
       | grep -E "Saved|Error|Traceback" | tee -a $LOG
   [ -f $POS ] || { say "collect failed"; exit 1; }
 fi
 if [ ! -f $LAB ]; then
   say "2. label at depth $TD"
-  uv run python label_positions.py --positions $POS -n 1000000 --depth $TD --every-move -w 12 -o $LAB 2>&1 \
+  uv run python label_positions.py --positions $POS -n $N --depth $TD --every-move -w 12 -o $LAB 2>&1 \
       | grep -E "Saved|Error|Traceback" | tee -a $LOG
   [ -f $LAB ] || { say "labeling failed"; exit 1; }
 fi

@@ -103,6 +103,8 @@ def main():
     parser.add_argument("--search-top-k", type=int, default=3)
     parser.add_argument("--explore", type=float, default=0.2,
                         help="with --search-depth: chance per move of a random policy top-k move instead")
+    parser.add_argument("--min-empties", type=int, default=0, help="only record positions with at least this many empties")
+    parser.add_argument("--max-empties", type=int, default=64, help="only record positions with at most this many empties")
     parser.add_argument("-o", "--output", required=True)
     args = parser.parse_args()
 
@@ -154,7 +156,7 @@ def main():
         model_games = [g for g in games if g.model_to_move or g.opponent == "self"]
         for g in model_games:
             key = g.board.tobytes()
-            if key not in excluded:
+            if key not in excluded and args.min_empties <= (g.board == 0).sum() <= args.max_empties:
                 seen.add(key)
         boards = [g.board for g in model_games]
         chosen = search_moves(player, model, boards, args.search_top_k, args.explore, rng) if player \
