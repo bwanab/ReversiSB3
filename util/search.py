@@ -11,6 +11,8 @@ Search to `depth` plies (a forced pass doesn't use up depth), then score the lea
 exactly by disc count (+1 win, -1 loss, 0 draw), never by the evaluator.
 """
 
+import os
+
 import numpy as np
 import torch
 
@@ -207,16 +209,38 @@ class SearchPlayer:
 
     top_k: if set, only the policy head's k most likely legal moves are searched at the root
     (with prune_all, at every node of the tree).
+    solve_empties: positions with at most this many empty squares are played by the exact endgame
+    solver (util/endgame.py) instead; 0 = off.
     """
 
-    def __init__(self, model, depth=2, top_k=None, prune_all=False):
+    def __init__(self, model, depth=2, top_k=None, prune_all=False, solve_empties=0):
         self.model, self.depth, self.top_k, self.prune_all = model, depth, top_k, prune_all
+        self.solve_empties = solve_empties
         self.evaluate = value_evaluator(model)
 
     def choose_many(self, boards):
         """Best move for each of several boards, with one policy call (if top_k or depth 0)
-        and one value call for all of them. depth 0 = the policy's top move."""
+        and one value call for all of them. depth 0 = the policy's top move. Boards with at most
+        solve_empties empty squares get the exact endgame solver's move instead (solved in
+        parallel threads; the C solver releases the GIL)."""
         boards = [np.asarray(b, dtype=np.int8).reshape(64) for b in boards]
+        if self.solve_empties:
+            late = [i for i, b in enumerate(boards) if (b == 0).sum() <= self.solve_empties]
+            if late:
+                from concurrent.futures import ThreadPoolExecutor
+                from util.endgame import solve
+                rest = [i for i in range(len(boards)) if i not in set(late)]
+                moves = [None] * len(boards)
+                with ThreadPoolExecutor(max_workers=os.cpu_count()) as pool:
+                    for i, (_, m, _) in zip(late, pool.map(solve, [boards[i] for i in late])):
+                        moves[i] = m
+                if rest:
+                    for i, m in zip(rest, self._choose([boards[i] for i in rest])):
+                        moves[i] = m
+                return moves
+        return self._choose(boards)
+
+    def _choose(self, boards):
         if self.depth == 0:
             return [int(m[0]) for m in policy_top_moves(self.model, boards, 1)]
         if self.prune_all and self.top_k is not None:

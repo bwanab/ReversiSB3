@@ -78,5 +78,24 @@ class TestEndgameSolver(unittest.TestCase):
             self.assertEqual(np.sign(s), np.sign(exact))
 
 
+    def test_search_player_uses_solver_late(self):
+        """With solve_empties, late positions get a move that achieves the exact value."""
+        import tempfile
+        from util.util import get_model
+        from util.search import SearchPlayer
+        from util.reversi import ReversiEnvCNN
+        env = ReversiEnvCNN(opponent="Random")
+        with tempfile.TemporaryDirectory() as d:
+            model = get_model(os.path.join(d, "m"), env, model_type="resnet", channels=8, blocks=1)
+        late = [b for b in self.positions if 0 < (b == 0).sum() <= 8 and len(legal_moves(b))][:8]
+        early = [b for b in self.positions if (b == 0).sum() > 30][:3]
+        player = SearchPlayer(model, depth=1, solve_empties=8)
+        chosen = player.choose_many(early + late)
+        for b, m in zip(late, chosen[len(early):]):
+            self.assertEqual(-brute(play_move(b, m)), brute(b))
+        for b, m in zip(early, chosen[:len(early)]):
+            self.assertIn(m, set(int(x) for x in legal_moves(b)))
+
+
 if __name__ == '__main__':
     unittest.main()
