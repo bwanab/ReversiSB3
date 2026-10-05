@@ -373,6 +373,13 @@ Each step: what we saw -> what we concluded -> what we did. Details and numbers 
    81.3 / 59.3 / 42.7 / 30.7; solver <= 16: 92 / 69 / 54.5 / 46 | 82.7 / 64 / 57.3 / 42.7; **solver <=
    18: 93.5 / 74 / 55.5 / 48 | 86.7 / 68 / 67.3 / 54.7**, and runs faster (239 vs 312 s per run).
    -> The diagnosis was right: perfect play from 18 empties lifts Edax-8 from ~28% to ~50%.
+18. **New frontier and re-diagnosis** (same player, solver <= 18): win % balanced / named vs Edax-8
+   48 / 54.7, Edax-9 40.5 / 41.3, Edax-10 28.5 / 28.7 (many draws), Edax-12 18.5 / 21.3. Losses vs
+   Edax-8 now: endgame regret 0 (exact), late 13-20 down to ~0.6-0.8 discs/move (was 1.9); middlegame
+   21-40 empties ~60-70% of lost discs (21-30 worst, 1.1-1.3 discs/move); opening 15-22% and the most
+   turning moves from balanced openings. -> Remaining levers are middlegame/opening play: better
+   middlegame labels (deeper teacher there), deeper middlegame search (time saved by the solver),
+   exact scores at search leaves near the end, opening knowledge.
 
 Authoritative logs: `exax_pretrain_steps.doc` (25 numbered steps: exact commands and Edax win
 rates after each), `edax_train_results.csv`, `edax_bc_pretrained_training.csv` (BC curves),
