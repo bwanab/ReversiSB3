@@ -17,10 +17,9 @@ Edax up to depth 6 almost every game from the standard opening but hits a wall a
 **from randomized openings it wins ~0%**: its Edax results were memorized lines, not playing
 strength (see "Memorization finding" below). Measure progress from random openings.
 
-**Current direction (2026-10-02):** the strongest model is `r192x10_dagger` (ResNet 192x10 from
-`train_course.sh`: BC -> Edax depth-12 labels -> one DAgger round). Played with depth-2 search over
-its top 3 moves it wins 71% vs Edax-2, 52.5% vs Edax-3 and 37.5% vs Edax-4 from random openings. PPO so far degraded best play. Next: more Edax labels,
-including positions the model itself reaches; see "Edax labels" below.
+**Current direction (2026-10-05):** strongest player = `r256x12_sdag1` + depth-5 search (top 3 at
+every level) + exact endgame solver from 18 empties (`eval_batch.py --search-depth 5 --search-top-k 3
+--search-prune-all --solve-empties 18`): ~48-55% vs Edax-8 from balanced/named openings.
 
 ## Key Architecture Components
 
@@ -369,6 +368,11 @@ Each step: what we saw -> what we concluded -> what we did. Details and numbers 
    <= 2) and ~46% decided by 10+ discs either way; named openings are 75% balanced. -> (a) random
    openings are fair but insensitive: build a balanced (XOT-like) random set; (b) about half the
    lost discs come with <= 20 empties: build an exact endgame solver (our own, in C).
+17. **Endgame solver in play** (`--solve-empties N`: exact moves at <= N empties; `r256x12_sdag1`,
+   depth-5 search, win % balanced E-4/6/7/8 | named E-4/6/7/8): no solver 83.5 / 54.5 / 39.5 / 25.5 |
+   81.3 / 59.3 / 42.7 / 30.7; solver <= 16: 92 / 69 / 54.5 / 46 | 82.7 / 64 / 57.3 / 42.7; **solver <=
+   18: 93.5 / 74 / 55.5 / 48 | 86.7 / 68 / 67.3 / 54.7**, and runs faster (239 vs 312 s per run).
+   -> The diagnosis was right: perfect play from 18 empties lifts Edax-8 from ~28% to ~50%.
 
 Authoritative logs: `exax_pretrain_steps.doc` (25 numbered steps: exact commands and Edax win
 rates after each), `edax_train_results.csv`, `edax_bc_pretrained_training.csv` (BC curves),
