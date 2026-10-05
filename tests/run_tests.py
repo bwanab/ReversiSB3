@@ -33,6 +33,7 @@ def run_all_tests():
     from test_openings import TestOpenings
     from test_training_mix import TestTrainingMix, TestVecEnvTraining
     from test_search import TestSearch, TestBatchedSearch, TestPrunedSearch, TestSearchCollection
+    from test_endgame import TestEndgameSolver
 
     # Create test suite
     test_classes = [
@@ -66,7 +67,8 @@ def run_all_tests():
         TestSearch,
         TestBatchedSearch,
         TestPrunedSearch,
-        TestSearchCollection
+        TestSearchCollection,
+        TestEndgameSolver
     ]
     
     suite = unittest.TestSuite()
@@ -138,6 +140,7 @@ def run_specific_test(test_name):
         'openings': 'test_openings',
         'mix': 'test_training_mix',
         'search': 'test_search',
+        'endgame': 'test_endgame',
     }
     
     if test_name in test_map:

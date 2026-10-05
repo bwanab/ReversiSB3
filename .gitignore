@@ -24,3 +24,4 @@ reversisb3_oob/
 test_*_training.csv
 *.npy
 *.npz
+solver/libendgame.*

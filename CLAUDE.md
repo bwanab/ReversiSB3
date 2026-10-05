@@ -258,6 +258,22 @@ unwrapped `ReversiEnvCNN`, and code holding a wrapped env (e.g. `ActionMasker`, 
 must go through `env.unwrapped`. Assigning attributes on a wrapper (`env.board = ...`) silently
 sets them on the wrapper, not the real env.
 
+### Endgame solver (`solver/endgame.c`, 2026-10-05)
+Our own exact solver: negamax alpha-beta over bitboards (bit i = square row*8+col), moves ordered
+by the opponent's resulting mobility (corners first), official scoring (empties to the winner).
+Build with `solver/build.sh` (macOS .dylib / Linux .so; on macOS it falls back to an older SDK if the
+default one doesn't link, like the Edax build); wrapper `util/endgame.py` (`solve(board)` ->
+(score, best move, nodes)). Validated: exact vs brute force (<= 8 empties), vs Edax solves on all 60
+tested positions with 12-16 empties, and vs minimax down to 16-empty Edax solves at 18-20 empties.
+Speed (M4 Max, positions from real games): 12 empties ~1 ms, 14 ~7 ms, 16 ~44 ms (max 0.14 s), 18
+~0.27 s (max 0.9 s), 20 ~2.2 s (max 8.5 s), 22 ~27 s.
+
+**Edax full solves above 16 empties are sometimes off** through our wrapper: asked for depth >=
+empties on 17-22-empty positions, Edax's root score was 2-4 discs wrong in ~25% of cases (its move
+too, in the case examined), while its scores of the resulting positions were consistent with ours.
+Labels are unaffected (depth 12-14 doesn't solve 17+ empties; at <= 16 empties Edax was exact), and
+so is Edax as an opponent at depths <= 16.
+
 ### Edax
 Edax runs in a separate process (`edax_server.py`, Unix socket `/tmp/edax_server.sock`) because
 SB3's forked envs corrupted the shared C library state; see `EDAX_SERVER_USAGE.md`. Start it
@@ -627,8 +643,8 @@ of the same fork (`bwanab/edax-reversi`, `src/edax_wrapper.c`) and the library p
 
 Run the suite with `./run_tests.sh` (all tests) or `./run_tests.sh <name>` for one group
 (`environment`, `scenarios`, `edge_cases`, `training`, `integration`, `bc`, `focused`,
-`training_issues`, `step`, `lr`, `features`, `resnet`, `play`, `starts`, `refresh`, `openings`, `mix`, `search`, ...).
-The script sets `PYTHONPATH` to the project root and runs through `uv run`. All 147 tests in `tests/`
+`training_issues`, `step`, `lr`, `features`, `resnet`, `play`, `starts`, `refresh`, `openings`, `mix`, `search`, `endgame`, ...).
+The script sets `PYTHONPATH` to the project root and runs through `uv run`. All 151 tests in `tests/`
 are part of the runner and pass. `test_edax_opponent.py`
 in the project root is a separate script that needs the Edax server running.
 
