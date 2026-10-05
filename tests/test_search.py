@@ -246,6 +246,27 @@ class TestPrunedSearch(unittest.TestCase):
             self.assertIn(m, set(int(x) for x in legal_moves(b)))
 
 
+class TestDepthSchedule(unittest.TestCase):
+    """early_depth applies to positions with more than early_above empties, depth to the rest."""
+
+    def test_groups_by_empties(self):
+        import tempfile
+        from util.util import get_model
+        with tempfile.TemporaryDirectory() as d:
+            model = get_model(os.path.join(d, "m"), ENV, model_type="resnet", channels=8, blocks=1)
+        positions = [b for b in sample_positions(n_games=3, seed=17) if len(legal_moves(b))][::4]
+        sched = SearchPlayer(model, depth=1, top_k=2, prune_all=True, early_depth=2, early_above=40)
+        shallow = SearchPlayer(model, depth=1, top_k=2, prune_all=True)
+        deep = SearchPlayer(model, depth=2, top_k=2, prune_all=True)
+        got = sched.choose_many(positions)
+        early = [i for i, b in enumerate(positions) if (b == 0).sum() > 40]
+        rest = [i for i in range(len(positions)) if i not in set(early)]
+        self.assertTrue(early and rest)
+        # compare with each group searched the same way (batched), as the schedule does
+        for group, player in ((early, deep), (rest, shallow)):
+            self.assertEqual([got[i] for i in group], player.choose_many([positions[i] for i in group]))
+
+
 class TestSearchCollection(unittest.TestCase):
     """collect_positions.search_moves: the search's move, or (explore) a policy top-k move."""
 

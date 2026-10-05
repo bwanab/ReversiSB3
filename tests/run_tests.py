@@ -32,7 +32,7 @@ def run_all_tests():
     from test_opponent_refresh import TestOpponentRefresh
     from test_openings import TestOpenings
     from test_training_mix import TestTrainingMix, TestVecEnvTraining
-    from test_search import TestSearch, TestBatchedSearch, TestPrunedSearch, TestSearchCollection
+    from test_search import TestSearch, TestBatchedSearch, TestPrunedSearch, TestSearchCollection, TestDepthSchedule
     from test_endgame import TestEndgameSolver
 
     # Create test suite
@@ -68,6 +68,7 @@ def run_all_tests():
         TestBatchedSearch,
         TestPrunedSearch,
         TestSearchCollection,
+        TestDepthSchedule,
         TestEndgameSolver
     ]
     

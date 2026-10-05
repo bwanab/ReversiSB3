@@ -238,11 +238,15 @@ class SearchPlayer:
     solver (util/endgame.py) instead; 0 = off.
     leaf_solve_empties: search leaves with at most this many empty squares are scored exactly by the
     solver instead of the value head; 0 = off.
+    early_depth / early_above: search at early_depth instead of depth while more than early_above
+    squares are empty (e.g. deeper in the middlegame); 0 = off.
     """
 
-    def __init__(self, model, depth=2, top_k=None, prune_all=False, solve_empties=0, leaf_solve_empties=0):
+    def __init__(self, model, depth=2, top_k=None, prune_all=False, solve_empties=0, leaf_solve_empties=0,
+                 early_depth=0, early_above=30):
         self.model, self.depth, self.top_k, self.prune_all = model, depth, top_k, prune_all
         self.solve_empties = solve_empties
+        self.early_depth, self.early_above = early_depth, early_above
         value = value_evaluator(model)
         self.evaluate = solving_evaluator(value, leaf_solve_empties) if leaf_solve_empties else value
 
@@ -269,13 +273,26 @@ class SearchPlayer:
         return self._choose(boards)
 
     def _choose(self, boards):
-        if self.depth == 0:
+        if not self.early_depth:
+            return self._choose_at(boards, self.depth)
+        # depth schedule: early_depth while more than early_above squares are empty
+        early = [i for i, b in enumerate(boards) if (b == 0).sum() > self.early_above]
+        moves = [None] * len(boards)
+        for group, depth in ((early, self.early_depth),
+                             ([i for i in range(len(boards)) if i not in set(early)], self.depth)):
+            if group:
+                for i, m in zip(group, self._choose_at([boards[i] for i in group], depth)):
+                    moves[i] = m
+        return moves
+
+    def _choose_at(self, boards, depth):
+        if depth == 0:
             return [int(m[0]) for m in policy_top_moves(self.model, boards, 1)]
         if self.prune_all and self.top_k is not None:
             top_moves = lambda bs, k: policy_top_moves(self.model, bs, k)
-            return [best for best, _ in search_many_pruned(boards, self.depth, self.evaluate, top_moves, self.top_k)]
+            return [best for best, _ in search_many_pruned(boards, depth, self.evaluate, top_moves, self.top_k)]
         roots = policy_top_moves(self.model, boards, self.top_k) if self.top_k is not None else None
-        return [best for best, _ in search_many(boards, self.depth, self.evaluate, roots)]
+        return [best for best, _ in search_many(boards, depth, self.evaluate, roots)]
 
     def __call__(self, board):
         return self.choose_many([board])[0]
