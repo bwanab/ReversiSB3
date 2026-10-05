@@ -17,9 +17,10 @@ Edax up to depth 6 almost every game from the standard opening but hits a wall a
 **from randomized openings it wins ~0%**: its Edax results were memorized lines, not playing
 strength (see "Memorization finding" below). Measure progress from random openings.
 
-**Current direction (2026-10-05):** strongest player = `r256x12_sdag1` + depth-5 search (top 3 at
-every level) + exact endgame solver from 18 empties (`eval_batch.py --search-depth 5 --search-top-k 3
---search-prune-all --solve-empties 18`): ~48-55% vs Edax-8 from balanced/named openings.
+**Current direction (2026-10-05):** strongest player = `r256x12_sdag1` + the combined search of
+step 20 (`eval_batch.py --search-depth 5 --search-top-k 3 --search-prune-all --solve-empties 18
+--leaf-solve-empties 16 --search-depth-early 6 --early-above 30`): even with Edax-9, ~37-47% vs
+Edax-10, ~22% vs Edax-12 from balanced/named openings.
 
 ## Key Architecture Components
 
@@ -386,6 +387,11 @@ Each step: what we saw -> what we concluded -> what we did. Details and numbers 
    60.7 / 44.7 / 31.3** (~370 s). Depth schedule (`--search-depth-early 6 --early-above 30`): **57 / 45 /
    32.5 | 58 / 56.7 / 42.7** (~530 s), +14-15 vs Edax-9/10 from named openings. -> Middlegame search
    depth is the strongest lever after the solver; the two refinements act on different phases.
+20. **Combined search** (`--search-depth 5 --search-top-k 3 --search-prune-all --solve-empties 18
+   --leaf-solve-empties 16 --search-depth-early 6 --early-above 30`, ~11 min per 200-game run): win %
+   balanced E-8/9/10/12 55 / 50 / 37 / 23.5, named 64.7 / 58.7 / 46.7 / 21.3 (step 18: 48 / 40.5 /
+   28.5 / 18.5 and 54.7 / 41.3 / 28.7 / 21.3). -> Roughly additive at Edax 8-10: even with Edax-9,
+   close to Edax-10; Edax-12 (~22%) is the next frontier.
 
 Authoritative logs: `exax_pretrain_steps.doc` (25 numbered steps: exact commands and Edax win
 rates after each), `edax_train_results.csv`, `edax_bc_pretrained_training.csv` (BC curves),
