@@ -380,6 +380,12 @@ Each step: what we saw -> what we concluded -> what we did. Details and numbers 
    turning moves from balanced openings. -> Remaining levers are middlegame/opening play: better
    middlegame labels (deeper teacher there), deeper middlegame search (time saved by the solver),
    exact scores at search leaves near the end, opening knowledge.
+19. **Two search refinements** (same player and solver <= 18; win % balanced E-8/9/10 | named E-8/9/10,
+   baseline 48 / 40.5 / 28.5 | 54.7 / 41.3 / 28.7, ~245 s per run): exact leaf scores
+   (`--leaf-solve-empties`) <= 14: no change (only reaches 19-empty roots); **<= 16: 54.5 / 46 / 33.5 |
+   60.7 / 44.7 / 31.3** (~370 s). Depth schedule (`--search-depth-early 6 --early-above 30`): **57 / 45 /
+   32.5 | 58 / 56.7 / 42.7** (~530 s), +14-15 vs Edax-9/10 from named openings. -> Middlegame search
+   depth is the strongest lever after the solver; the two refinements act on different phases.
 
 Authoritative logs: `exax_pretrain_steps.doc` (25 numbered steps: exact commands and Edax win
 rates after each), `edax_train_results.csv`, `edax_bc_pretrained_training.csv` (BC curves),
