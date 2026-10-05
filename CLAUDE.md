@@ -338,6 +338,15 @@ Each step: what we saw -> what we concluded -> what we did. Details and numbers 
    / 1.52 (best yet); depth-5 search vs Edax-6 +12 points (55% random, 59% named), but Edax-8 unchanged
    at ~31%; head-to-head vs `r256x12_dagger` about even (51.6% / 44.3%). -> Better networks no longer
    move the Edax-8 frontier at depth 5. Next: find where games vs Edax-8 are lost (game phase).
+16. **Where games vs Edax-8 are lost** (`diagnose_losses.py`: every model move graded by Edax depth-14
+   every-move scores; `r256x12_sdag1`, depth-5 search). Named openings, lost games, by empty squares:
+   41+ 0.37 discs/move (8.6% of discs lost), 31-40 0.80 (16.6%), 21-30 1.23 (25.4%), **13-20 1.88
+   (31.0%, 21% of moves lose 4+ discs)**, 0-12 0.78 (18.4%, exact grading). Random openings: same
+   shape, but 68 of 132 losses were already lost at our first move. Grading the starting positions:
+   random openings (seed 42) are roughly symmetric (mean -1.2 discs) but only 19% balanced (|score|
+   <= 2) and ~46% decided by 10+ discs either way; named openings are 75% balanced. -> (a) random
+   openings are fair but insensitive: build a balanced (XOT-like) random set; (b) about half the
+   lost discs come with <= 20 empties: build an exact endgame solver (our own, in C).
 
 Authoritative logs: `exax_pretrain_steps.doc` (25 numbered steps: exact commands and Edax win
 rates after each), `edax_train_results.csv`, `edax_bc_pretrained_training.csv` (BC curves),
