@@ -32,11 +32,13 @@ def sb_play_starts(n, random_plies=0, seed=None, start_positions=None):
     return starts
 
 
-def play_vs_edax(choose_many, starts, edax_depth, client=None):
+def play_vs_edax(choose_many, starts, edax_depth, client=None, on_model_move=None):
     """Play one game per start (model to move first) against Edax at `edax_depth`, all in lockstep.
 
-    choose_many(list of boards) -> list of moves. Returns per-game results from the model's view:
-    an array of final disc differences (model - Edax); > 0 win, 0 draw, < 0 loss.
+    choose_many(list of boards) -> list of moves. on_model_move(game index, board, move), if given,
+    is called for every model move (board before the move, side-to-move view). Returns per-game
+    results from the model's view: an array of final disc differences (model - Edax); > 0 win,
+    0 draw, < 0 loss.
     """
     if client is None:
         from util.edax_client import EdaxClient
@@ -62,6 +64,8 @@ def play_vs_edax(choose_many, starts, edax_depth, client=None):
         mine = [i for i in active if model_to_move[i]]
         if mine:
             for i, m in zip(mine, choose_many([boards[i] for i in mine])):
+                if on_model_move is not None:
+                    on_model_move(i, boards[i].copy(), int(m))
                 boards[i] = play_move(boards[i], m)
                 model_to_move[i] = False
         else:

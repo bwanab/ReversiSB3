@@ -179,9 +179,15 @@ class TestBatchedSearch(unittest.TestCase):
             def analyze(self, board, depth):
                 return {"move": int(legal_moves(np.asarray(board).reshape(64))[0])}
         player = SearchPlayer(self.model, depth=0)
-        diffs = play_vs_edax(player.choose_many, self.positions[:6], 1, client=FirstMove())
+        recorded = []
+        diffs = play_vs_edax(player.choose_many, self.positions[:6], 1, client=FirstMove(),
+                             on_model_move=lambda g, b, m: recorded.append((g, b, m)))
         self.assertEqual(len(diffs), 6)
         self.assertTrue(all(-64 <= d <= 64 for d in diffs))
+        # the hook sees every model move, each legal in the recorded position
+        self.assertEqual({g for g, _, _ in recorded}, set(range(6)))
+        for _, b, m in recorded:
+            self.assertIn(m, set(int(x) for x in legal_moves(b)))
 
     def test_sb_play_starts_reproducible(self):
         from util.lockstep import sb_play_starts

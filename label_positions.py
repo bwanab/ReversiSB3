@@ -104,6 +104,35 @@ def start_servers(k):
     return procs, paths
 
 
+def label_boards(boards, depth, every_move, workers, progress=False):
+    """Label (N, 64) boards (side to move = 1, each with a legal move) with Edax, using `workers`
+    Edax servers started (and stopped) here. Returns a list of (best_move, score, move_scores or
+    None), as label_one."""
+    procs, paths = start_servers(workers)
+    try:
+        from multiprocessing import Manager
+        with Manager() as manager:
+            queue = manager.Queue()
+            for p in paths:
+                queue.put(p)
+            t = time.time()
+            results = []
+            with Pool(workers, initializer=_init_worker, initargs=(queue,)) as pool:
+                jobs = ((b, depth, every_move) for b in boards)
+                for i, r in enumerate(pool.imap(label_one, jobs, chunksize=64)):
+                    results.append(r)
+                    if progress and (i + 1) % 10_000 == 0:
+                        rate = (i + 1) / (time.time() - t)
+                        print(f"  {i + 1:,} labeled, {rate:.0f}/s, ~{(len(boards) - i - 1) / rate / 60:.0f} min left",
+                              flush=True)
+    finally:
+        for p in procs:
+            p.terminate()
+        for p in procs:
+            p.wait()
+    return results
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("-d", "--dataset", default="combined_bc_dataset.pkl")
@@ -129,29 +158,9 @@ def main():
     print(f"Labeling {len(boards):,} positions at depth {args.depth}"
           f"{' (every move)' if args.every_move else ''} with {args.workers} Edax servers")
 
-    procs, paths = start_servers(args.workers)
-    try:
-        from multiprocessing import Manager
-        with Manager() as manager:
-            queue = manager.Queue()
-            for p in paths:
-                queue.put(p)
-            t = time.time()
-            results = []
-            with Pool(args.workers, initializer=_init_worker, initargs=(queue,)) as pool:
-                jobs = ((b, args.depth, args.every_move) for b in boards)
-                for i, r in enumerate(pool.imap(label_one, jobs, chunksize=64)):
-                    results.append(r)
-                    if (i + 1) % 10_000 == 0:
-                        rate = (i + 1) / (time.time() - t)
-                        print(f"  {i + 1:,} labeled, {rate:.0f}/s, ~{(len(boards) - i - 1) / rate / 60:.0f} min left",
-                              flush=True)
-            elapsed = time.time() - t
-    finally:
-        for p in procs:
-            p.terminate()
-        for p in procs:
-            p.wait()
+    t = time.time()
+    results = label_boards(boards, args.depth, args.every_move, args.workers, progress=True)
+    elapsed = time.time() - t
 
     out = dict(boards=boards,
                best_move=np.array([r[0] for r in results], dtype=np.int16),
