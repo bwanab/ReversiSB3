@@ -184,6 +184,12 @@ the policy's preferred move, and a single diverging move changes a whole game. T
 also queried root candidates once in training mode right after loading. Use `eval_batch.py` for Edax
 evaluations; sb-play for sampled play and Model-vs-Model.
 
+**Balanced openings** (2026-10-05): `make_balanced_openings.py` keeps the 8-ply random openings
+(same generator and seed as `--random-opening 8 --seed 42`) whose Edax depth-14 score is within +-2
+discs: 200 from the first 967 (21% qualify) -> `balanced_openings.npy` (git-ignored, regenerate with
+the script). Use `--start-positions balanced_openings.npy -e 200` as the random-opening headline from
+now on; plain random openings are fair on average but ~46% are decided by 10+ discs at move one.
+
 `opening_agreement.py -m MODEL ...` reports how often a model's top move is a `moves.txt` book
 continuation (and its probability mass on book moves) over the 412 book positions after 4+ plies.
 
