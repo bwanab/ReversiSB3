@@ -332,6 +332,12 @@ Each step: what we saw -> what we concluded -> what we did. Details and numbers 
    k=2 pruning is worse than k=3 at equal cost. -> On this hardware more search strength costs ~3x
    per level; the cheaper lever is better networks. Next: DAgger played with search and a deeper Edax
    teacher (the "2 and 3" from step 11).
+15. **DAgger played with search + depth-14 teacher** (`./dagger_round.sh r256x12_sdag1 r256x12_bc
+   r256x12_dagger 14 3`, log `dagger_r256x12_sdag1.log`: 1M positions from depth-3 search play vs
+   itself and Edax 4-8, labeled at depth 14, training on all ~6.1M labels): policy / value regret 1.36
+   / 1.52 (best yet); depth-5 search vs Edax-6 +12 points (55% random, 59% named), but Edax-8 unchanged
+   at ~31%; head-to-head vs `r256x12_dagger` about even (51.6% / 44.3%). -> Better networks no longer
+   move the Edax-8 frontier at depth 5. Next: find where games vs Edax-8 are lost (game phase).
 
 Authoritative logs: `exax_pretrain_steps.doc` (25 numbered steps: exact commands and Edax win
 rates after each), `edax_train_results.csv`, `edax_bc_pretrained_training.csv` (BC curves),
