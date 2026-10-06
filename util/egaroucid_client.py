@@ -58,6 +58,27 @@ class EgaroucidClient:
                 col, row = "abcdefgh".index(move[0].lower()), int(move[1]) - 1
                 return {"move": row * 8 + col, "score": int(score)}
 
+    def analyze_all(self, board, depth, n_moves):
+        """Scores (discs, side to move's view) for the n_moves best moves: {square: score}.
+        Pass n_moves = the number of legal moves to score every move (Egaroucid's `hint n`)."""
+        board = np.asarray(board).reshape(64)
+        if depth != self.level:
+            self._send(f"level {depth}")
+            self.level = depth
+        squares = "".join("X" if v == 1 else ("O" if v == -1 else "-") for v in board)
+        self._send(f"setboard {squares} X")
+        self._send(f"hint {n_moves}")
+        scores = {}
+        while len(scores) < n_moves:
+            line = self.proc.stdout.readline()
+            if not line:
+                raise RuntimeError("Egaroucid exited unexpectedly")
+            fields = [f.strip() for f in line.split("|")]
+            if len(fields) > 5 and fields[1].isdigit():
+                move = fields[3]
+                scores["abcdefgh".index(move[0].lower()) + (int(move[1]) - 1) * 8] = int(fields[4])
+        return scores
+
     def get_move(self, state, depth=None):
         return self.analyze(state, depth or self.level or 8)["move"]
 
