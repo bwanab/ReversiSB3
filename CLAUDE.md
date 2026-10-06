@@ -410,6 +410,12 @@ independent of all training and evaluation, i.e. evidence the gains are general 
 Edax-specific. Keep a tally per Piccolo level and configuration (network / `--strong`) to make this a
 second benchmark.
 
+| Date | Model | `web_play.py` config | Piccolo level | Result |
+|---|---|---|---|---|
+| 2026-10-06 | `r256x12_mid1` | network only | 5 | win |
+| 2026-10-06 | `r256x12_mid1` | `--strong` | 6 | win |
+| 2026-10-06 | `r256x12_mid1` | `--strong` | 8 (Piccolo's maximum) | win |
+
 Authoritative logs: `exax_pretrain_steps.doc` (25 numbered steps: exact commands and Edax win
 rates after each), `edax_train_results.csv`, `edax_bc_pretrained_training.csv` (BC curves),
 `status_summary_2026-09-23.md` (analysis and suggested next steps), `session_notes.md` (earlier
