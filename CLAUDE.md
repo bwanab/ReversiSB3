@@ -419,6 +419,14 @@ Each step: what we saw -> what we concluded -> what we did. Details and numbers 
    draws at 8-10). -> Even with Egaroucid level ~2 (network) and ~7 (strong player), vs Edax depth ~2
    and ~9-10: Egaroucid is ~2 levels stronger at equal depth. Smooth curves and agreement between
    opening sets confirm the gains are general, not Edax-specific.
+23. **Egaroucid as a teacher? (diagnostic, 4,000 positions with Edax d14 every-move labels)**
+   Every-move scoring speed, 12 processes: Egaroucid L10 105 positions/s, L12 41, L14 23 (Edax d14
+   ~124 on a similar mix). Vs the exact solver (1,570 positions <= 18 empties): Egaroucid L10-14 exact
+   (MAE 0.00, best move 100%); Edax d14 MAE 0.38, best move 97.5%. Middlegame agreement with Edax
+   (L12): same best move 75-80%, move-score difference 1.4-2.3 discs (21-30 empties worst), graded
+   targets differ by L1 ~0.35-0.42. L12 ~ L14 in all measures. -> The teachers differ meaningfully
+   where our losses are; Egaroucid is flawless where checkable and stronger in play. Next: relabel
+   ~1M middlegame positions with Egaroucid L12 and retrain from `r256x12_bc` (teacher-only change).
 
 **External check: Piccolo (iPhone app), played by hand via `web_play.py`.** 2026-10-06:
 `r256x12_mid1_CNN_test` with the network only (no search or solver, ~Edax-2 strength) won a game
