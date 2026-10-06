@@ -392,6 +392,12 @@ Each step: what we saw -> what we concluded -> what we did. Details and numbers 
    balanced E-8/9/10/12 55 / 50 / 37 / 23.5, named 64.7 / 58.7 / 46.7 / 21.3 (step 18: 48 / 40.5 /
    28.5 / 18.5 and 54.7 / 41.3 / 28.7 / 21.3). -> Roughly additive at Edax 8-10: even with Edax-9,
    close to Edax-10; Edax-12 (~22%) is the next frontier.
+21. **Middlegame labels with a deeper teacher** (`N=300000 EMPTIES=21-40 ./dagger_round.sh r256x12_mid1
+   r256x12_bc r256x12_sdag1 16 3 r256x12_sdag1`, log `dagger_r256x12_mid1.log`: 300k positions with
+   21-40 empties from depth-3 search play, Edax depth 16, ~5% of the 6.4M training labels; middlegame
+   labeling runs ~44 positions/s at depth 16 with 12 servers): depth-5 search vs Edax 2-8 within noise
+   of `r256x12_sdag1` except named E-5 (+11); head-to-head 52.2% / 52.5%; validation about equal. ->
+   No measurable gain from this amount of depth-16 middlegame data.
 
 Authoritative logs: `exax_pretrain_steps.doc` (25 numbered steps: exact commands and Edax win
 rates after each), `edax_train_results.csv`, `edax_bc_pretrained_training.csv` (BC curves),

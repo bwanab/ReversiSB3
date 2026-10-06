@@ -4,7 +4,7 @@
 #      randomness), vs itself and Edax 4-8, from random and named openings
 #   2. label them with Edax at TEACHER_DEPTH, every move scored
 #   3. fine-tune BASE (a BC model) on all label files (labels_d*_all.npz)
-#   4. evaluate: top move vs Edax 1-3, depth-5 top-3 pruned search vs Edax 2-8 (random and named
+#   4. evaluate: top move vs Edax 1-3, depth-5 top-3 pruned search vs Edax 2-8 (balanced and named
 #      openings, eval_batch.py), and a head-to-head vs REF
 #
 # Usage: [N=positions] [EMPTIES=min-max] ./dagger_round.sh OUT BASE PLAY_MODEL TEACHER_DEPTH [COLLECT_SEARCH_DEPTH] [REF]
@@ -46,7 +46,7 @@ if [ ! -f models/${OUT}_CNN_test.zip ]; then
 fi
 pgrep -f edax_server.py >/dev/null || { say "Edax server not running; skipping evaluation"; exit 0; }
 say "4. evaluate"
-for spec in "random:-e 200 --random-opening 8 --seed 42" "named:-e 150 --start-positions opening_positions.npy"; do
+for spec in "balanced:-e 200 --start-positions balanced_openings.npy" "named:-e 150 --start-positions opening_positions.npy"; do
   op=${spec%%:*}; args=${spec#*:}
   uv run python eval_batch.py -m ${OUT}_CNN_test -p 1,2,3 ${=args} 2>&1 | grep "Black wins" \
       | while read -r line; do say "eval $op | $line"; done
