@@ -185,8 +185,10 @@ ReversiSB3/
 Play against trained models in your browser:
 
 ```bash
-python web_app.py -m my_model
+uv run python web_play.py -m r256x12_mid1_CNN_test   # model file name without models/ and .zip
 ```
+Then open http://127.0.0.1:5000 (`-p` sets the port, `--host` the address). The model plays its
+policy's top move (no search).
 
 Features:
 - Interactive board with click-to-move
