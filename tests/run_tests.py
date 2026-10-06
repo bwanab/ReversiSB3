@@ -34,6 +34,7 @@ def run_all_tests():
     from test_training_mix import TestTrainingMix, TestVecEnvTraining
     from test_search import TestSearch, TestBatchedSearch, TestPrunedSearch, TestSearchCollection, TestDepthSchedule
     from test_endgame import TestEndgameSolver
+    from test_egaroucid import TestEgaroucidClient
 
     # Create test suite
     test_classes = [
@@ -69,7 +70,8 @@ def run_all_tests():
         TestPrunedSearch,
         TestSearchCollection,
         TestDepthSchedule,
-        TestEndgameSolver
+        TestEndgameSolver,
+        TestEgaroucidClient
     ]
     
     suite = unittest.TestSuite()
@@ -142,6 +144,7 @@ def run_specific_test(test_name):
         'mix': 'test_training_mix',
         'search': 'test_search',
         'endgame': 'test_endgame',
+        'egaroucid': 'test_egaroucid',
     }
     
     if test_name in test_map:

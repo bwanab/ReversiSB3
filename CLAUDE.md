@@ -274,6 +274,17 @@ too, in the case examined), while its scores of the resulting positions were con
 Labels are unaffected (depth 12-14 doesn't solve 17+ empties; at <= 16 empties Edax was exact), and
 so is Edax as an opponent at depths <= 16.
 
+### Egaroucid (second, independent opponent; 2026-10-06)
+Egaroucid (https://www.egaroucid.nyanyan.dev/, GPL-3.0, one of the strongest Othello programs) is
+cloned at `~/src/Egaroucid` and built from source (no cmake needed):
+`cd ~/src/Egaroucid/src/.. && clang++ -O2 ./src/Egaroucid_for_Console.cpp -o ./bin/Egaroucid_for_Console.out -mcpu=native -pthread -std=c++20 -DHAS_ARM_PROCESSOR -DHAS_NO_AVX2`
+(on Apple Silicon `-DHAS_NO_AVX2` is required: its SIMD code uses x86 intrinsics; on this Mac prefix
+`SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk`; on Linux/x86 drop both flags for
+the faster SIMD build). `util/egaroucid_client.py` drives its console mode (`setboard` + `hint`),
+not GTP: GTP can't load an arbitrary position, and our evaluations start from stored positions. It
+runs with `-nobook` (like Edax). `eval_batch.py -o egaroucid -p LEVELS ...`. Levels 1-10 are
+full-width searches of that depth (exact endgame near the end); above 10 it prunes selectively.
+
 ### Edax
 Edax runs in a separate process (`edax_server.py`, Unix socket `/tmp/edax_server.sock`) because
 SB3's forked envs corrupted the shared C library state; see `EDAX_SERVER_USAGE.md`. Start it
@@ -689,8 +700,8 @@ of the same fork (`bwanab/edax-reversi`, `src/edax_wrapper.c`) and the library p
 
 Run the suite with `./run_tests.sh` (all tests) or `./run_tests.sh <name>` for one group
 (`environment`, `scenarios`, `edge_cases`, `training`, `integration`, `bc`, `focused`,
-`training_issues`, `step`, `lr`, `features`, `resnet`, `play`, `starts`, `refresh`, `openings`, `mix`, `search`, `endgame`, ...).
-The script sets `PYTHONPATH` to the project root and runs through `uv run`. All 154 tests in `tests/`
+`training_issues`, `step`, `lr`, `features`, `resnet`, `play`, `starts`, `refresh`, `openings`, `mix`, `search`, `endgame`, `egaroucid`, ...).
+The script sets `PYTHONPATH` to the project root and runs through `uv run`. All 155 tests in `tests/`
 are part of the runner and pass. `test_edax_opponent.py`
 in the project root is a separate script that needs the Edax server running.
 

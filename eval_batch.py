@@ -30,7 +30,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("-m", "--model", required=True, nargs="+",
                         help="model name(s) as for sb-play.py (no models/ or .zip); several = a learning curve")
-    parser.add_argument("-p", "--depths", default="2", help="comma-separated Edax depths")
+    parser.add_argument("-p", "--depths", default="2", help="comma-separated Edax depths / Egaroucid levels")
+    parser.add_argument("-o", "--opponent", choices=["edax", "egaroucid"], default="edax",
+                        help="egaroucid: Egaroucid for Console (util/egaroucid_client.py), no opening book")
     parser.add_argument("-e", "--episodes", type=int, default=200)
     parser.add_argument("--random-opening", type=int, default=0)
     parser.add_argument("--seed", type=int, default=None)
@@ -61,6 +63,11 @@ def main():
         (f" + solver <= {args.solve_empties} empties" if args.solve_empties else "") + \
         (f" + leaf solves <= {args.leaf_solve_empties}" if args.leaf_solve_empties else "") + \
         (f" + depth {args.search_depth_early} above {args.early_above} empties" if args.search_depth_early else "")
+    client = None
+    if args.opponent == "egaroucid":
+        from util.egaroucid_client import EgaroucidClient
+        client = EgaroucidClient()
+    opp_name = "edax" if args.opponent == "edax" else "egaroucid"
     for name in args.model:
         model = MaskablePPO.load(f"models/{name}", env=build_reversi("Random"), device=device)
         player = SearchPlayer(model, depth=args.search_depth, top_k=args.search_top_k, prune_all=args.search_prune_all,
@@ -69,9 +76,9 @@ def main():
                               early_depth=args.search_depth_early, early_above=args.early_above)
         for depth in (int(d) for d in args.depths.split(",")):
             t = time.time()
-            diffs = play_vs_edax(player.choose_many, starts, depth)
+            diffs = play_vs_edax(player.choose_many, starts, depth, client=client)
             wins, draws = int((diffs > 0).sum()), int((diffs == 0).sum())
-            print(f"{name} | {mode} | edax-{depth}: Black wins: {100 * wins / len(diffs)}% "
+            print(f"{name} | {mode} | {opp_name}-{depth}: Black wins: {100 * wins / len(diffs)}% "
                   f"({wins} wins, {draws} draws, {len(diffs) - wins - draws} losses, "
                   f"{time.time() - t:.0f}s)", flush=True)
 
