@@ -402,6 +402,14 @@ Each step: what we saw -> what we concluded -> what we did. Details and numbers 
    (`r256x12_sdag1`: 55 / 50 / 37 / 23.5 and 64.7 / 58.7 / 46.7 / 21.3): better vs Edax-8, mixed
    elsewhere, Edax-12 unchanged.
 
+**External check: Piccolo (iPhone app), played by hand via `web_play.py`.** 2026-10-06:
+`r256x12_mid1_CNN_test` with the network only (no search or solver, ~Edax-2 strength) won a game
+against Piccolo at AI level 5. The previous best model (`edax_bc_pretrained`) always lost to level 5,
+usually badly; the RAI-era BC model scored 0% at levels 3-4. A single game, but against an engine
+independent of all training and evaluation, i.e. evidence the gains are general strength rather than
+Edax-specific. Keep a tally per Piccolo level and configuration (network / `--strong`) to make this a
+second benchmark.
+
 Authoritative logs: `exax_pretrain_steps.doc` (25 numbered steps: exact commands and Edax win
 rates after each), `edax_train_results.csv`, `edax_bc_pretrained_training.csv` (BC curves),
 `status_summary_2026-09-23.md` (analysis and suggested next steps), `session_notes.md` (earlier
