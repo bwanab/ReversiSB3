@@ -413,6 +413,13 @@ Each step: what we saw -> what we concluded -> what we did. Details and numbers 
    (`r256x12_sdag1`: 55 / 50 / 37 / 23.5 and 64.7 / 58.7 / 46.7 / 21.3): better vs Edax-8, mixed
    elsewhere, Edax-12 unchanged.
 
+22. **Second engine: Egaroucid** (no book, `eval_batch.py -o egaroucid`; `r256x12_mid1`; win %
+   balanced / named): network top move vs levels 1/2/3/4: 87.5 / 88.7, 50 / 60, 28 / 40, 9.5 / 20;
+   `--strong` combined search vs levels 4/6/8/10: 89 / 92.7, 68 / 72, 36.5 / 37.3, 18 / 17.3 (many
+   draws at 8-10). -> Even with Egaroucid level ~2 (network) and ~7 (strong player), vs Edax depth ~2
+   and ~9-10: Egaroucid is ~2 levels stronger at equal depth. Smooth curves and agreement between
+   opening sets confirm the gains are general, not Edax-specific.
+
 **External check: Piccolo (iPhone app), played by hand via `web_play.py`.** 2026-10-06:
 `r256x12_mid1_CNN_test` with the network only (no search or solver, ~Edax-2 strength) won a game
 against Piccolo at AI level 5. The previous best model (`edax_bc_pretrained`) always lost to level 5,
