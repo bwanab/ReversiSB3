@@ -104,10 +104,46 @@ def start_servers(k):
     return procs, paths
 
 
-def label_boards(boards, depth, every_move, workers, progress=False):
-    """Label (N, 64) boards (side to move = 1, each with a legal move) with Edax, using `workers`
-    Edax servers started (and stopped) here. Returns a list of (best_move, score, move_scores or
-    None), as label_one."""
+_egaroucid = None
+
+
+def _init_egaroucid_worker():
+    global _egaroucid
+    from util.egaroucid_client import EgaroucidClient
+    _egaroucid = EgaroucidClient(threads=1)
+
+
+def label_one_egaroucid(args):
+    """Egaroucid labels at `level`: every legal move scored (`hint n`), so best move and score are
+    the best of them. Same format as label_one with every_move."""
+    board, level, _ = args
+    scores = np.full(64, np.nan, dtype=np.float32)
+    for m, v in _egaroucid.analyze_all(board, level, len(legal_moves(board))).items():
+        scores[m] = v
+    best = int(np.nanargmax(scores))
+    return best, int(scores[best]), scores
+
+
+def _run_pool(workers, initializer, initargs, fn, jobs, n, progress):
+    t = time.time()
+    results = []
+    with Pool(workers, initializer=initializer, initargs=initargs) as pool:
+        for i, r in enumerate(pool.imap(fn, jobs, chunksize=64)):
+            results.append(r)
+            if progress and (i + 1) % 10_000 == 0:
+                rate = (i + 1) / (time.time() - t)
+                print(f"  {i + 1:,} labeled, {rate:.0f}/s, ~{(n - i - 1) / rate / 60:.0f} min left", flush=True)
+    return results
+
+
+def label_boards(boards, depth, every_move, workers, progress=False, teacher="edax"):
+    """Label (N, 64) boards (side to move = 1, each with a legal move). teacher "edax": Edax at
+    `depth`, using `workers` Edax servers started (and stopped) here; "egaroucid": Egaroucid at level
+    `depth`, one process per worker, always scoring every move. Returns a list of
+    (best_move, score, move_scores or None), as label_one."""
+    jobs = ((b, depth, every_move) for b in boards)
+    if teacher == "egaroucid":
+        return _run_pool(workers, _init_egaroucid_worker, (), label_one_egaroucid, jobs, len(boards), progress)
     procs, paths = start_servers(workers)
     try:
         from multiprocessing import Manager
@@ -115,16 +151,7 @@ def label_boards(boards, depth, every_move, workers, progress=False):
             queue = manager.Queue()
             for p in paths:
                 queue.put(p)
-            t = time.time()
-            results = []
-            with Pool(workers, initializer=_init_worker, initargs=(queue,)) as pool:
-                jobs = ((b, depth, every_move) for b in boards)
-                for i, r in enumerate(pool.imap(label_one, jobs, chunksize=64)):
-                    results.append(r)
-                    if progress and (i + 1) % 10_000 == 0:
-                        rate = (i + 1) / (time.time() - t)
-                        print(f"  {i + 1:,} labeled, {rate:.0f}/s, ~{(len(boards) - i - 1) / rate / 60:.0f} min left",
-                              flush=True)
+            results = _run_pool(workers, _init_worker, (queue,), label_one, jobs, len(boards), progress)
     finally:
         for p in procs:
             p.terminate()
@@ -137,7 +164,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("-d", "--dataset", default="combined_bc_dataset.pkl")
     parser.add_argument("-n", "--num-positions", type=int, default=100_000)
-    parser.add_argument("--depth", type=int, default=12)
+    parser.add_argument("--depth", type=int, default=12, help="Edax depth, or Egaroucid level")
+    parser.add_argument("--teacher", choices=["edax", "egaroucid"], default="edax",
+                        help="egaroucid: Egaroucid for Console (always scores every move; implies --every-move)")
     parser.add_argument("--every-move", action="store_true", help="also score every legal move")
     parser.add_argument("--min-stones", type=int, default=5)
     parser.add_argument("--max-stones", type=int, default=60)
@@ -155,17 +184,19 @@ def main():
     else:
         boards = sample_positions(args.dataset, args.num_positions, args.min_stones, args.max_stones, args.seed,
                                   args.exclude)
-    print(f"Labeling {len(boards):,} positions at depth {args.depth}"
-          f"{' (every move)' if args.every_move else ''} with {args.workers} Edax servers")
+    if args.teacher == "egaroucid":
+        args.every_move = True
+    print(f"Labeling {len(boards):,} positions with {args.teacher} at {'level' if args.teacher == 'egaroucid' else 'depth'} "
+          f"{args.depth}{' (every move)' if args.every_move else ''}, {args.workers} workers")
 
     t = time.time()
-    results = label_boards(boards, args.depth, args.every_move, args.workers, progress=True)
+    results = label_boards(boards, args.depth, args.every_move, args.workers, progress=True, teacher=args.teacher)
     elapsed = time.time() - t
 
     out = dict(boards=boards,
                best_move=np.array([r[0] for r in results], dtype=np.int16),
                score=np.array([r[1] for r in results], dtype=np.int16),
-               depth=args.depth, source=args.dataset)
+               depth=args.depth, teacher=args.teacher, source=args.positions or args.dataset)
     if args.every_move:
         out["move_scores"] = np.stack([r[2] for r in results])
     np.savez_compressed(args.output, **out)

@@ -33,5 +33,17 @@ class TestEgaroucidClient(unittest.TestCase):
             client.close()
 
 
+    def test_labeling(self):
+        """label_boards(teacher="egaroucid"): every legal move scored and nothing else; best move and
+        score are the best of them."""
+        import numpy as np
+        from label_positions import label_boards
+        positions = [b for b in sample_positions(n_games=2, seed=43) if len(legal_moves(b))][::6][:8]
+        for b, (best, score, ms) in zip(positions, label_boards(np.array(positions), 4, True, 2, teacher="egaroucid")):
+            self.assertEqual(set(np.flatnonzero(~np.isnan(ms))), set(int(m) for m in legal_moves(b)))
+            self.assertEqual(best, int(np.nanargmax(ms)))
+            self.assertEqual(score, int(np.nanmax(ms)))
+
+
 if __name__ == '__main__':
     unittest.main()
