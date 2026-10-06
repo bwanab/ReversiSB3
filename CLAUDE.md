@@ -277,7 +277,7 @@ so is Edax as an opponent at depths <= 16.
 ### Egaroucid (second, independent opponent; 2026-10-06)
 Egaroucid (https://www.egaroucid.nyanyan.dev/, GPL-3.0, one of the strongest Othello programs) is
 cloned at `~/src/Egaroucid` and built from source (no cmake needed):
-`cd ~/src/Egaroucid/src/.. && clang++ -O2 ./src/Egaroucid_for_Console.cpp -o ./bin/Egaroucid_for_Console.out -mcpu=native -pthread -std=c++20 -DHAS_ARM_PROCESSOR -DHAS_NO_AVX2`
+`cd ~/src/Egaroucid && clang++ -O2 ./src/Egaroucid_for_Console.cpp -o ./bin/Egaroucid_for_Console.out -mcpu=native -pthread -std=c++20 -DHAS_ARM_PROCESSOR -DHAS_NO_AVX2`
 (on Apple Silicon `-DHAS_NO_AVX2` is required: its SIMD code uses x86 intrinsics; on this Mac prefix
 `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk`; on Linux/x86 drop both flags for
 the faster SIMD build). `util/egaroucid_client.py` drives its console mode (`setboard` + `hint`),
