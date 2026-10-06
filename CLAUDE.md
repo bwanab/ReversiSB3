@@ -397,7 +397,10 @@ Each step: what we saw -> what we concluded -> what we did. Details and numbers 
    21-40 empties from depth-3 search play, Edax depth 16, ~5% of the 6.4M training labels; middlegame
    labeling runs ~44 positions/s at depth 16 with 12 servers): depth-5 search vs Edax 2-8 within noise
    of `r256x12_sdag1` except named E-5 (+11); head-to-head 52.2% / 52.5%; validation about equal. ->
-   No measurable gain from this amount of depth-16 middlegame data.
+   No measurable gain from this amount of depth-16 middlegame data. Under the combined search (step 20)
+   `r256x12_mid1` wins balanced 65 / 45 / 41 / 25.5, named 72 / 62 / 45.3 / 20.7 vs Edax-8/9/10/12
+   (`r256x12_sdag1`: 55 / 50 / 37 / 23.5 and 64.7 / 58.7 / 46.7 / 21.3): better vs Edax-8, mixed
+   elsewhere, Edax-12 unchanged.
 
 Authoritative logs: `exax_pretrain_steps.doc` (25 numbered steps: exact commands and Edax win
 rates after each), `edax_train_results.csv`, `edax_bc_pretrained_training.csv` (BC curves),
