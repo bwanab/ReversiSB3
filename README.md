@@ -185,10 +185,23 @@ ReversiSB3/
 Play against trained models in your browser:
 
 ```bash
-uv run python web_play.py -m r256x12_mid1_CNN_test   # model file name without models/ and .zip
+uv run python web_play.py -m r256x12_mid1_CNN_test            # network only (top move), ~Edax-2 strength
+uv run python web_play.py -m r256x12_mid1_CNN_test --strong   # search + endgame solver, ~Edax-9 strength
 ```
-Then open http://127.0.0.1:5000 (`-p` sets the port, `--host` the address). The model plays its
-policy's top move (no search).
+Then open http://127.0.0.1:5000 (`-p` sets the port, `--host` the address). The model name is the
+file name without `models/` and `.zip`. How the model chooses its moves:
+
+- default: the network's top move (instant)
+- `--search-depth N`: search N moves deep, pruned to `--search-top-k` (3) moves per level (~1-2 s/move at 5)
+- `--search-depth-early D --early-above E`: search deeper (D) while more than E squares are empty
+- `--solve-empties N`: play perfectly (exact endgame solver) once N or fewer squares are empty; works with
+  or without search. Needs `solver/build.sh` once. The first solve can take several seconds at 16-18
+- `--leaf-solve-empties N`: with search, score positions near the end exactly
+- `--strong`: `--search-depth 5 --search-depth-early 6 --early-above 30 --solve-empties 18 --leaf-solve-empties 16`
+- `--device auto|cpu|mps|cuda` (default auto: CUDA, else MPS, else CPU)
+
+The move panel shows the network's top move probabilities, which method chose the move, and with the
+solver the exact result with perfect play.
 
 Features:
 - Interactive board with click-to-move

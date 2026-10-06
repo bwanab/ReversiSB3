@@ -235,6 +235,16 @@ function updateLastMoveDisplay(lastMove) {
         displayText += moveProbabilities.join(', ');
     }
 
+    // How the model chose (network / search / solver), and the solver's exact verdict
+    if (lastMove.player === 'model' && lastMove.method) {
+        displayText += `\nChosen by: ${lastMove.method}`;
+        if (lastMove.exact_score !== undefined) {
+            const s = lastMove.exact_score;
+            displayText += s > 0 ? ` (model wins by ${s} with perfect play)`
+                         : s < 0 ? ` (model loses by ${-s} with perfect play)` : ' (draw with perfect play)';
+        }
+    }
+
     lastMoveDiv.textContent = displayText;
 }
 

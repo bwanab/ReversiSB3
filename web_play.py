@@ -9,7 +9,8 @@ import numpy as np
 import torch
 import argparse
 from util.reversi import ReversiEnvCNN
-from util.util import get_model, mask_fn, BLACK, WHITE, get_action
+from util.util import get_model, mask_fn, BLACK, WHITE, get_action, get_device
+from util.search import SearchPlayer
 
 
 app = Flask(__name__)
@@ -18,6 +19,8 @@ app = Flask(__name__)
 game_state = {
     'env': None,
     'model': None,
+    'player': None,        # SearchPlayer choosing the model's moves (network, search and/or solver)
+    'player_desc': '',
     'model_color': BLACK,  # Model plays as BLACK by default
     'game_over': False,
     'winner': None,
@@ -141,7 +144,26 @@ def get_model_move(env, board):
                 'action': int(act)
             })
 
-    return int(action), analysis
+    # The move actually played comes from the configured player; the analysis above stays the
+    # network's own probabilities (the panel marks the chosen move with a star).
+    info = {'method': 'network'}
+    player = game_state['player']
+    if player is not None:
+        flat = obs.reshape(64).astype(np.int8)
+        empties = int((flat == 0).sum())
+        action = player.choose_many([flat])[0]
+        if player.solve_empties and empties <= player.solve_empties:
+            from util.endgame import solve
+            score, _, _ = solve(flat)
+            info = {'method': f'solver ({empties} empty)', 'exact_score': int(score)}
+        elif player.depth > 0:
+            depth = player.early_depth if player.early_depth and empties > player.early_above else player.depth
+            info = {'method': f'search depth {depth}'}
+        if all(a['action'] != int(action) for a in analysis):
+            prob = next((float(probs[i]) for i in range(len(valid_actions)) if int(valid_actions[i]) == int(action)), 0.0)
+            analysis.append({'notation': action_to_notation(int(action)), 'probability': prob, 'action': int(action)})
+
+    return int(action), analysis, info
 
 
 def count_pieces(board):
@@ -379,7 +401,7 @@ def make_model_move():
             })
 
     # Model has valid moves - get model's action and analysis
-    action, analysis = get_model_move(env, board)
+    action, analysis, info = get_model_move(env, board)
 
     # Record move before executing
     board_before = env.board.copy()
@@ -397,7 +419,8 @@ def make_model_move():
     game_state['last_move'] = {
         'action': action,
         'player': 'model',
-        'analysis': analysis  # Include move analysis
+        'analysis': analysis,  # network's top move probabilities
+        **info                 # how the move was chosen; exact_score when the solver chose it
     }
 
     # Check if game is over
@@ -629,8 +652,29 @@ def main():
                         help='Port to run web server (default: 5000)')
     parser.add_argument('--host', type=str, default='127.0.0.1',
                         help='Host to bind to (default: 127.0.0.1)')
+    parser.add_argument('--device', default='auto',
+                        help='auto (CUDA, else MPS, else CPU), or cpu / mps / cuda. For the bare network one '
+                             'position at a time the CPU is often fastest; search batches favor the GPU')
+    parser.add_argument('--search-depth', type=int, default=0,
+                        help="search this many moves deep (pruned at every level); 0 = the network's top move")
+    parser.add_argument('--search-top-k', type=int, default=3, help='moves considered at each search level')
+    parser.add_argument('--search-depth-early', type=int, default=0,
+                        help='search this deep instead while more than --early-above squares are empty')
+    parser.add_argument('--early-above', type=int, default=30)
+    parser.add_argument('--solve-empties', type=int, default=0,
+                        help='play exactly (endgame solver) with at most this many empty squares; 0 = off. '
+                             'Works with or without search')
+    parser.add_argument('--leaf-solve-empties', type=int, default=0,
+                        help='with search: score leaves with at most this many empty squares exactly')
+    parser.add_argument('--strong', action='store_true',
+                        help='the strongest configuration: --search-depth 5 --search-depth-early 6 --early-above 30 '
+                             '--solve-empties 18 --leaf-solve-empties 16')
 
     args = parser.parse_args()
+    if args.strong:
+        args.search_depth, args.search_depth_early, args.early_above = 5, 6, 30
+        args.solve_empties, args.leaf_solve_empties = 18, 16
+    device = get_device() if args.device == 'auto' else args.device
 
     # Create environment (needed for loading model)
     env = ReversiEnvCNN()
@@ -641,7 +685,7 @@ def main():
         file=f"models/{args.model}",
         env=env,
         net_width=args.net_width,
-        device="cpu"
+        device=device
     )
 
     if model is None:
@@ -650,12 +694,25 @@ def main():
 
     game_state['model'] = model
     game_state['model_name'] = args.model
+    if args.search_depth or args.solve_empties:
+        game_state['player'] = SearchPlayer(model, depth=args.search_depth, top_k=args.search_top_k, prune_all=True,
+                                            solve_empties=args.solve_empties,
+                                            leaf_solve_empties=args.leaf_solve_empties if args.search_depth else 0,
+                                            early_depth=args.search_depth_early, early_above=args.early_above)
+    parts = [f"search depth {args.search_depth}" if args.search_depth else "network top move"]
+    if args.search_depth_early:
+        parts.append(f"depth {args.search_depth_early} above {args.early_above} empties")
+    if args.leaf_solve_empties and args.search_depth:
+        parts.append(f"leaf solves <= {args.leaf_solve_empties}")
+    if args.solve_empties:
+        parts.append(f"solver <= {args.solve_empties} empties")
+    game_state['player_desc'] = ", ".join(parts)
 
     print(f"\n{'='*60}")
     print(f"Reversi Web Interface")
     print(f"{'='*60}")
     print(f"Model: {args.model}")
-    print(f"Network width: {args.net_width}")
+    print(f"Plays with: {game_state['player_desc']} (device {device})")
     print(f"\nStarting server at http://{args.host}:{args.port}")
     print(f"Open your browser and navigate to the URL above")
     print(f"{'='*60}\n")
