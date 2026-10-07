@@ -191,6 +191,23 @@ def policy_top_moves(model, boards, k):
     return out
 
 
+def policy_mass_moves(model, boards, p, k_min=1, k_max=6):
+    """For each board, the policy's most likely legal moves (best first) until they cover at least
+    probability p (softmax over the legal moves), keeping between k_min and k_max moves. One network
+    call for all boards."""
+    logits = policy_logits(model, boards)
+    out = []
+    for b, lg in zip(boards, logits):
+        moves = legal_moves(np.asarray(b).reshape(64))
+        order = np.argsort(-lg[moves], kind="stable")
+        x = lg[moves][order]
+        probs = np.exp(x - x.max())
+        probs /= probs.sum()
+        n = int(np.searchsorted(np.cumsum(probs), p - 1e-9) + 1)       # smallest prefix reaching p
+        out.append(moves[order[:min(max(n, k_min), k_max, len(moves))]])
+    return out
+
+
 def value_evaluator(model, max_batch=None):
     """evaluate() backed by an SB3 policy's value head (side-to-move perspective, like the env)."""
     policy = model.policy
@@ -240,11 +257,14 @@ class SearchPlayer:
     solver instead of the value head; 0 = off.
     early_depth / early_above: search at early_depth instead of depth while more than early_above
     squares are empty (e.g. deeper in the middlegame); 0 = off.
+    top_p / k_min / k_max: instead of a fixed top_k, each node searches the policy's moves until they
+    cover probability top_p, keeping k_min to k_max moves (always pruned at every level).
     """
 
     def __init__(self, model, depth=2, top_k=None, prune_all=False, solve_empties=0, leaf_solve_empties=0,
-                 early_depth=0, early_above=30):
+                 early_depth=0, early_above=30, top_p=None, k_min=1, k_max=6):
         self.model, self.depth, self.top_k, self.prune_all = model, depth, top_k, prune_all
+        self.top_p, self.k_min, self.k_max = top_p, k_min, k_max
         self.solve_empties = solve_empties
         self.early_depth, self.early_above = early_depth, early_above
         value = value_evaluator(model)
@@ -288,6 +308,9 @@ class SearchPlayer:
     def _choose_at(self, boards, depth):
         if depth == 0:
             return [int(m[0]) for m in policy_top_moves(self.model, boards, 1)]
+        if self.top_p is not None:
+            top_moves = lambda bs, _k: policy_mass_moves(self.model, bs, self.top_p, self.k_min, self.k_max)
+            return [best for best, _ in search_many_pruned(boards, depth, self.evaluate, top_moves, None)]
         if self.prune_all and self.top_k is not None:
             top_moves = lambda bs, k: policy_top_moves(self.model, bs, k)
             return [best for best, _ in search_many_pruned(boards, depth, self.evaluate, top_moves, self.top_k)]

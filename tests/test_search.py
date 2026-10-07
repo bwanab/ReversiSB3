@@ -267,6 +267,57 @@ class TestDepthSchedule(unittest.TestCase):
             self.assertEqual([got[i] for i in group], player.choose_many([positions[i] for i in group]))
 
 
+class TestProbabilityPruning(unittest.TestCase):
+    """policy_mass_moves picks the policy's most likely moves until they cover p (within k_min..k_max);
+    p = 1 with no cap keeps every move, so the search equals the full search."""
+
+    @classmethod
+    def setUpClass(cls):
+        import tempfile, torch
+        from util.util import get_model
+        torch.manual_seed(1)
+        with tempfile.TemporaryDirectory() as d:
+            cls.model = get_model(os.path.join(d, "m"), ENV, model_type="resnet", channels=8, blocks=1)
+        with torch.no_grad():                         # sharpen the untrained policy so p matters
+            cls.model.policy.mlp_extractor.policy_head[2].weight.mul_(400)
+        cls.positions = [b for b in sample_positions(n_games=3, seed=19) if len(legal_moves(b))][::4]
+
+    def test_mass_selection(self):
+        from util.search import policy_mass_moves, policy_logits
+        logits = policy_logits(self.model, self.positions)
+        for p in (0.5, 0.9):
+            for b, lg, moves in zip(self.positions, logits, policy_mass_moves(self.model, self.positions, p, 1, 64)):
+                legal = legal_moves(b)
+                x = lg[legal] - lg[legal].max(); probs = np.exp(x) / np.exp(x).sum()
+                order = np.argsort(-probs, kind="stable")
+                self.assertEqual(list(moves), list(legal[order[:len(moves)]]))      # best first
+                covered = probs[order[:len(moves)]].sum()
+                self.assertGreaterEqual(covered, p - 1e-6)                          # reaches p ...
+                if len(moves) > 1:                                                   # ... minimally
+                    self.assertLess(probs[order[:len(moves) - 1]].sum(), p - 1e-9)
+
+    def test_bounds(self):
+        from util.search import policy_mass_moves
+        for b, moves in zip(self.positions, policy_mass_moves(self.model, self.positions, 0.0001, 2, 3)):
+            self.assertEqual(len(moves), min(2, len(legal_moves(b))))
+        for b, moves in zip(self.positions, policy_mass_moves(self.model, self.positions, 1.0, 1, 3)):
+            self.assertLessEqual(len(moves), 3)
+
+    def test_full_mass_equals_full_search(self):
+        player = SearchPlayer(self.model, depth=2, top_p=1.0, k_min=1, k_max=64)
+        full = SearchPlayer(self.model, depth=2)
+        from util.search import search_many_pruned, policy_mass_moves
+        tm = lambda bs, _k: policy_mass_moves(self.model, bs, 1.0, 1, 64)
+        pruned = search_many_pruned(self.positions, 2, full.evaluate, tm, None)
+        reference = search_many(self.positions, 2, full.evaluate)
+        for (b1, s1), (b2, s2) in zip(pruned, reference):
+            self.assertEqual(set(s1), set(s2))
+            for m in s1:
+                self.assertAlmostEqual(s1[m], s2[m], places=5)
+        for m, b in zip(player.choose_many(self.positions), self.positions):
+            self.assertIn(m, set(int(x) for x in legal_moves(b)))
+
+
 class TestSearchCollection(unittest.TestCase):
     """collect_positions.search_moves: the search's move, or (explore) a policy top-k move."""
 

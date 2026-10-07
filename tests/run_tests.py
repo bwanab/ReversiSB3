@@ -32,7 +32,7 @@ def run_all_tests():
     from test_opponent_refresh import TestOpponentRefresh
     from test_openings import TestOpenings
     from test_training_mix import TestTrainingMix, TestVecEnvTraining
-    from test_search import TestSearch, TestBatchedSearch, TestPrunedSearch, TestSearchCollection, TestDepthSchedule
+    from test_search import TestSearch, TestBatchedSearch, TestPrunedSearch, TestSearchCollection, TestDepthSchedule, TestProbabilityPruning
     from test_endgame import TestEndgameSolver
     from test_egaroucid import TestEgaroucidClient
 
@@ -70,6 +70,7 @@ def run_all_tests():
         TestPrunedSearch,
         TestSearchCollection,
         TestDepthSchedule,
+        TestProbabilityPruning,
         TestEndgameSolver,
         TestEgaroucidClient
     ]

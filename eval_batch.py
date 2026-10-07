@@ -46,6 +46,11 @@ def main():
                         help="score search leaves with at most this many empty squares exactly (solver)")
     parser.add_argument("--solve-empties", type=int, default=0,
                         help="play positions with at most this many empty squares with the exact endgame solver")
+    parser.add_argument("--search-top-p", type=float, default=None,
+                        help="instead of a fixed top k, search the policy's moves until they cover this probability, "
+                             "at every level (with --search-k-min/--search-k-max)")
+    parser.add_argument("--search-k-min", type=int, default=1)
+    parser.add_argument("--search-k-max", type=int, default=6)
     parser.add_argument("--search-prune-all", action="store_true",
                         help="apply --search-top-k at every node of the search tree, not only the root")
     parser.add_argument("--device", default="auto", help="auto = cuda, else mps, else cpu")
@@ -60,6 +65,7 @@ def main():
     mode = "top move" if args.search_depth == 0 else \
         f"search depth {args.search_depth}" + (f" top {args.search_top_k}" if args.search_top_k else "") + \
         (" every level" if args.search_prune_all else "") + \
+        (f" p {args.search_top_p} k {args.search_k_min}-{args.search_k_max}" if args.search_top_p else "") + \
         (f" + solver <= {args.solve_empties} empties" if args.solve_empties else "") + \
         (f" + leaf solves <= {args.leaf_solve_empties}" if args.leaf_solve_empties else "") + \
         (f" + depth {args.search_depth_early} above {args.early_above} empties" if args.search_depth_early else "")
@@ -73,7 +79,8 @@ def main():
         player = SearchPlayer(model, depth=args.search_depth, top_k=args.search_top_k, prune_all=args.search_prune_all,
                               solve_empties=args.solve_empties,
                               leaf_solve_empties=args.leaf_solve_empties,
-                              early_depth=args.search_depth_early, early_above=args.early_above)
+                              early_depth=args.search_depth_early, early_above=args.early_above,
+                              top_p=args.search_top_p, k_min=args.search_k_min, k_max=args.search_k_max)
         for depth in (int(d) for d in args.depths.split(",")):
             t = time.time()
             diffs = play_vs_edax(player.choose_many, starts, depth, client=client)
