@@ -54,8 +54,8 @@ def main():
     parser.add_argument("--mcts-sims", type=int, default=0,
                         help="choose moves by MCTS with this many simulations per move (util/mcts.py)")
     parser.add_argument("--mcts-c", type=float, default=1.0, help="MCTS exploration weight c_puct")
-    parser.add_argument("--mcts-parallel", type=int, default=8, help="MCTS leaves per game per network call")
-    parser.add_argument("--mcts-fpu", type=float, default=0.1, help="MCTS first-play-urgency reduction")
+    parser.add_argument("--mcts-parallel", type=int, default=4, help="MCTS leaves per game per network call")
+    parser.add_argument("--mcts-fpu", type=float, default=0.3, help="MCTS first-play-urgency reduction")
     parser.add_argument("--search-prune-all", action="store_true",
                         help="apply --search-top-k at every node of the search tree, not only the root")
     parser.add_argument("--device", default="auto", help="auto = cuda, else mps, else cpu")

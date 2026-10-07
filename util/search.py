@@ -282,7 +282,7 @@ class SearchPlayer:
 
     def __init__(self, model, depth=2, top_k=None, prune_all=False, solve_empties=0, leaf_solve_empties=0,
                  early_depth=0, early_above=30, top_p=None, k_min=1, k_max=6,
-                 mcts_sims=0, mcts_c=1.0, mcts_parallel=8, mcts_fpu=0.1):
+                 mcts_sims=0, mcts_c=1.0, mcts_parallel=4, mcts_fpu=0.3):
         self.model, self.depth, self.top_k, self.prune_all = model, depth, top_k, prune_all
         self.top_p, self.k_min, self.k_max = top_p, k_min, k_max
         self.solve_empties = solve_empties

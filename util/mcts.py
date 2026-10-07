@@ -58,7 +58,7 @@ class MCTS:
     valued at the node's value minus this; leaf_solve_empties: solve positions with at most this many
     empty squares exactly (0 = off)."""
 
-    def __init__(self, net, sims=400, c_puct=1.0, parallel=8, fpu_reduction=0.1, leaf_solve_empties=0,
+    def __init__(self, net, sims=400, c_puct=1.0, parallel=4, fpu_reduction=0.3, leaf_solve_empties=0,
                  scale=LEAF_SCORE_SCALE):
         self.net, self.sims, self.c_puct, self.parallel = net, sims, c_puct, parallel
         self.fpu_reduction, self.leaf_solve_empties, self.scale = fpu_reduction, leaf_solve_empties, scale
