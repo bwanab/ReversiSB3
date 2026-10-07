@@ -181,6 +181,22 @@ def policy_logits(model, boards, max_batch=None):
     return _chunked(logits, boards, max_batch)
 
 
+def policy_value(model, boards, max_batch=None):
+    """Policy logits (N, 64) and values (N,) for (N, 64) side-to-move boards, both heads from one
+    trunk pass per chunk (what MCTS needs for every new position)."""
+    policy = model.policy
+
+    def both(chunk):
+        obs = torch.as_tensor(chunk.reshape(-1, 1, 8, 8), dtype=torch.float32, device=policy.device)
+        policy.set_training_mode(False)
+        with torch.no_grad():
+            latent_pi, latent_vf = policy.mlp_extractor(policy.extract_features(obs))
+            return torch.cat([policy.action_net(latent_pi), policy.value_net(latent_vf).reshape(-1, 1)],
+                             dim=1).cpu().numpy()
+    out = _chunked(both, boards, max_batch)
+    return out[:, :64], out[:, 64]
+
+
 def policy_top_moves(model, boards, k):
     """The policy's k most likely legal moves for each board (best first), in one network call."""
     logits = policy_logits(model, boards)
@@ -259,16 +275,26 @@ class SearchPlayer:
     squares are empty (e.g. deeper in the middlegame); 0 = off.
     top_p / k_min / k_max: instead of a fixed top_k, each node searches the policy's moves until they
     cover probability top_p, keeping k_min to k_max moves (always pruned at every level).
+    mcts_sims: if set, choose moves by Monte Carlo Tree Search with this many simulations per move
+    (util/mcts.py; depth, top_k and the depth schedule are then unused; solve_empties still applies,
+    and leaf_solve_empties makes MCTS solve positions with that many empties exactly).
     """
 
     def __init__(self, model, depth=2, top_k=None, prune_all=False, solve_empties=0, leaf_solve_empties=0,
-                 early_depth=0, early_above=30, top_p=None, k_min=1, k_max=6):
+                 early_depth=0, early_above=30, top_p=None, k_min=1, k_max=6,
+                 mcts_sims=0, mcts_c=1.0, mcts_parallel=8, mcts_fpu=0.1):
         self.model, self.depth, self.top_k, self.prune_all = model, depth, top_k, prune_all
         self.top_p, self.k_min, self.k_max = top_p, k_min, k_max
         self.solve_empties = solve_empties
         self.early_depth, self.early_above = early_depth, early_above
         value = value_evaluator(model)
         self.evaluate = solving_evaluator(value, leaf_solve_empties) if leaf_solve_empties else value
+        self.mcts = None
+        if mcts_sims:
+            from util.mcts import MCTS
+            self.mcts = MCTS(lambda bs: policy_value(model, bs), sims=mcts_sims, c_puct=mcts_c,
+                             parallel=mcts_parallel, fpu_reduction=mcts_fpu,
+                             leaf_solve_empties=leaf_solve_empties)
 
     def choose_many(self, boards):
         """Best move for each of several boards, with one policy call (if top_k or depth 0)
@@ -293,6 +319,8 @@ class SearchPlayer:
         return self._choose(boards)
 
     def _choose(self, boards):
+        if self.mcts is not None:
+            return [best for best, _ in self.mcts.run(boards)]
         if not self.early_depth:
             return self._choose_at(boards, self.depth)
         # depth schedule: early_depth while more than early_above squares are empty

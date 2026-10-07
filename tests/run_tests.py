@@ -34,6 +34,7 @@ def run_all_tests():
     from test_training_mix import TestTrainingMix, TestVecEnvTraining
     from test_search import TestSearch, TestBatchedSearch, TestPrunedSearch, TestSearchCollection, TestDepthSchedule, TestProbabilityPruning
     from test_endgame import TestEndgameSolver
+    from test_mcts import TestMCTS, TestPolicyValue
     from test_egaroucid import TestEgaroucidClient
 
     # Create test suite
@@ -72,6 +73,8 @@ def run_all_tests():
         TestDepthSchedule,
         TestProbabilityPruning,
         TestEndgameSolver,
+        TestMCTS,
+        TestPolicyValue,
         TestEgaroucidClient
     ]
     
@@ -145,6 +148,7 @@ def run_specific_test(test_name):
         'mix': 'test_training_mix',
         'search': 'test_search',
         'endgame': 'test_endgame',
+        'mcts': 'test_mcts',
         'egaroucid': 'test_egaroucid',
     }
     

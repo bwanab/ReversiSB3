@@ -51,6 +51,11 @@ def main():
                              "at every level (with --search-k-min/--search-k-max)")
     parser.add_argument("--search-k-min", type=int, default=1)
     parser.add_argument("--search-k-max", type=int, default=6)
+    parser.add_argument("--mcts-sims", type=int, default=0,
+                        help="choose moves by MCTS with this many simulations per move (util/mcts.py)")
+    parser.add_argument("--mcts-c", type=float, default=1.0, help="MCTS exploration weight c_puct")
+    parser.add_argument("--mcts-parallel", type=int, default=8, help="MCTS leaves per game per network call")
+    parser.add_argument("--mcts-fpu", type=float, default=0.1, help="MCTS first-play-urgency reduction")
     parser.add_argument("--search-prune-all", action="store_true",
                         help="apply --search-top-k at every node of the search tree, not only the root")
     parser.add_argument("--device", default="auto", help="auto = cuda, else mps, else cpu")
@@ -62,7 +67,10 @@ def main():
     device = get_device() if args.device == "auto" else args.device
     positions = np.load(args.start_positions) if args.start_positions else None
     starts = sb_play_starts(args.episodes, args.random_opening, args.seed, positions)
-    mode = "top move" if args.search_depth == 0 else \
+    mode = (f"MCTS {args.mcts_sims} sims c {args.mcts_c} fpu {args.mcts_fpu} par {args.mcts_parallel}"
+            + (f" + solver <= {args.solve_empties} empties" if args.solve_empties else "")
+            + (f" + leaf solves <= {args.leaf_solve_empties}" if args.leaf_solve_empties else "")) \
+        if args.mcts_sims else "top move" if args.search_depth == 0 else \
         f"search depth {args.search_depth}" + (f" top {args.search_top_k}" if args.search_top_k else "") + \
         (" every level" if args.search_prune_all else "") + \
         (f" p {args.search_top_p} k {args.search_k_min}-{args.search_k_max}" if args.search_top_p else "") + \
@@ -80,7 +88,9 @@ def main():
                               solve_empties=args.solve_empties,
                               leaf_solve_empties=args.leaf_solve_empties,
                               early_depth=args.search_depth_early, early_above=args.early_above,
-                              top_p=args.search_top_p, k_min=args.search_k_min, k_max=args.search_k_max)
+                              top_p=args.search_top_p, k_min=args.search_k_min, k_max=args.search_k_max,
+                              mcts_sims=args.mcts_sims, mcts_c=args.mcts_c, mcts_parallel=args.mcts_parallel,
+                              mcts_fpu=args.mcts_fpu)
         for depth in (int(d) for d in args.depths.split(",")):
             t = time.time()
             diffs = play_vs_edax(player.choose_many, starts, depth, client=client)
