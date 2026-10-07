@@ -436,6 +436,17 @@ Each step: what we saw -> what we concluded -> what we did. Details and numbers 
    mid1 50.1% / 43.3%; validation equal. -> No clear change (better vs the strongest opponents, worse
    vs Edax-8, ~+1 point on average). Like step 21: replacing or adding ~5-8% of labels, even from a
    stronger teacher, moves the network less than we can measure; search changes moved it 5-20 points.
+25. **Probability-based pruning** (`--search-top-p P --search-k-min A --search-k-max B`: each node
+   searches the policy's moves, best first, until they cover probability P of its softmax over legal
+   moves, keeping A-B moves; `util/search.py:policy_mass_moves`). The policy is soft (graded targets):
+   on 21-40-empty positions covering 80% keeps 3.3 moves on average, 90% 4.4, 95% 5.3. Combined search
+   (step 20), `r256x12_mid1`, balanced openings, win % vs Edax-8 / Edax-10 (s per run): top 3 65 / 41
+   (625 / 670); p 0.8 k 1-6 60 / 45 (1394 / 1470); **p 0.8 k 2-4 64.5 / 43 (970 / 1018)**; p 0.9 k 1-6
+   67.5 / 51.5 (5735 / 5637). -> Not more efficient than a fixed top 3: equal average width costs more
+   (tree size is the product of widths along a line, so wide nodes dominate), and the gains of p 0.9
+   (+2.5 / +10.5) cost ~9x, about two extra plies at top 3. The policy's probabilities are no better a
+   guide to where to search than its ranking. Next: MCTS, which widens where the value head finds lines
+   close rather than where the policy is unsure.
 
 **External check: Piccolo (iPhone app), played by hand via `web_play.py`.** 2026-10-06:
 `r256x12_mid1_CNN_test` with the network only (no search or solver, ~Edax-2 strength) won a game
@@ -678,8 +689,8 @@ k3 d5 59.5 / 43 / 33 / 31.5 | 71.3 / 46.7 / 38.7 / 32 | 309; k3 d6 65.5 / 50 / 4
 80.7 / 67.3 / 59.3 / 32 | 1491; k2 d6 47.5 / 38 / 29.5 / 23 | 66.7 / 41.3 / 30 / 20.7 | 104;
 k2 d7 48 / 37.5 / 31.5 / 24 | 65.3 / 42.7 / 30.7 / 24.7 | 212; k2 d8 54 / 40 / 34.5 / 30.5 |
 62.7 / 45.3 / 34.7 / 23.3 | 411. At equal cost (k2 d8 ~ k3 d5) k=2 is no better and worse from
-named openings: the policy's 3rd choice matters too often. Untested idea: prune by cumulative policy
-probability (e.g. 90%) instead of a fixed k (narrow where confident, wide where not).
+named openings: the policy's 3rd choice matters too often. Pruning by cumulative policy probability
+instead of a fixed k was tested in step 25: no better at equal cost.
 
 **Rollout speed (profiled 2026-09-29, 128x8 on MPS):** vs Edax-2 111 steps/s, self-play 97 steps/s
 after vectorizing the legal-move planes and disabling torch.distributions argument checks (were 101 and
