@@ -427,6 +427,15 @@ Each step: what we saw -> what we concluded -> what we did. Details and numbers 
    targets differ by L1 ~0.35-0.42. L12 ~ L14 in all measures. -> The teachers differ meaningfully
    where our losses are; Egaroucid is flawless where checkable and stronger in play. Next: relabel
    ~1M middlegame positions with Egaroucid L12 and retrain from `r256x12_bc` (teacher-only change).
+24. **Teacher swap round** (`N=500000 EMPTIES=21-40 ./teacher_round.sh r256x12_egt1 r256x12_bc 12
+   r256x12_mid1`, log `teacher_r256x12_egt1.log`; middlegame labeling at L12 ran 20 positions/s, so
+   500k instead of 1M; the Egaroucid labels replace Edax's for those positions, ~8% of the 6.4M).
+   Combined search, win % balanced | named vs Edax-8/9/10/12: 59 / 46.5 / 48 / 28.5 | 63.3 / 58 / 42.7 /
+   36.7 (mid1: 65 / 45 / 41 / 25.5 | 72 / 62 / 45.3 / 20.7); vs Egaroucid-4/6/8/10: 88.5 / 65 / 41.5 /
+   20.5 | 92 / 70.7 / 47.3 / 20 (mid1: 89 / 68 / 36.5 / 18 | 92.7 / 72 / 37.3 / 17.3). Head-to-head vs
+   mid1 50.1% / 43.3%; validation equal. -> No clear change (better vs the strongest opponents, worse
+   vs Edax-8, ~+1 point on average). Like step 21: replacing or adding ~5-8% of labels, even from a
+   stronger teacher, moves the network less than we can measure; search changes moved it 5-20 points.
 
 **External check: Piccolo (iPhone app), played by hand via `web_play.py`.** 2026-10-06:
 `r256x12_mid1_CNN_test` with the network only (no search or solver, ~Edax-2 strength) won a game
