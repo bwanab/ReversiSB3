@@ -249,14 +249,13 @@ def solving_evaluator(evaluate, max_empties, scale=LEAF_SCORE_SCALE):
             return evaluate(boards)
         late = (boards == 0).sum(axis=1) <= max_empties
         out = np.empty(len(boards), dtype=np.float64)
+        if late.any():                                  # solves run while the network evaluates the rest
+            from util.endgame import solve_async
+            solved = solve_async(list(boards[late]))
         if (~late).any():
             out[~late] = evaluate(boards[~late])
         if late.any():
-            from concurrent.futures import ThreadPoolExecutor
-            from util.endgame import solve
-            with ThreadPoolExecutor(max_workers=os.cpu_count()) as pool:
-                scores = [s for s, _, _ in pool.map(solve, list(boards[late]))]
-            out[late] = np.tanh(np.array(scores, dtype=np.float64) / scale)
+            out[late] = np.tanh(np.array([s for s, _, _ in solved()], dtype=np.float64) / scale)
         return out
     return mixed
 
@@ -300,21 +299,20 @@ class SearchPlayer:
         """Best move for each of several boards, with one policy call (if top_k or depth 0)
         and one value call for all of them. depth 0 = the policy's top move. Boards with at most
         solve_empties empty squares get the exact endgame solver's move instead (solved in
-        parallel threads; the C solver releases the GIL)."""
+        parallel threads while the other boards are searched; the C solver releases the GIL)."""
         boards = [np.asarray(b, dtype=np.int8).reshape(64) for b in boards]
         if self.solve_empties:
             late = [i for i, b in enumerate(boards) if (b == 0).sum() <= self.solve_empties]
             if late:
-                from concurrent.futures import ThreadPoolExecutor
-                from util.endgame import solve
+                from util.endgame import solve_async
+                solved = solve_async([boards[i] for i in late])    # runs while the rest are searched
                 rest = [i for i in range(len(boards)) if i not in set(late)]
                 moves = [None] * len(boards)
-                with ThreadPoolExecutor(max_workers=os.cpu_count()) as pool:
-                    for i, (_, m, _) in zip(late, pool.map(solve, [boards[i] for i in late])):
-                        moves[i] = m
                 if rest:
                     for i, m in zip(rest, self._choose([boards[i] for i in rest])):
                         moves[i] = m
+                for i, (_, m, _) in zip(late, solved()):
+                    moves[i] = m
                 return moves
         return self._choose(boards)
 

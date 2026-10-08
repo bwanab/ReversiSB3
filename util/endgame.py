@@ -67,5 +67,26 @@ def solve(board, alpha=-64, beta=64):
     return score, best.value, nodes.value
 
 
+_pool = None
+
+
+def solve_async(boards):
+    """Start solving several boards on a shared pool of threads (one per CPU; the C solver releases the
+    GIL, and each thread keeps its transposition table between calls). Returns a function that waits
+    and returns the list of (score, best_move, nodes), so other work (e.g. a network call) can run
+    in the meantime."""
+    global _pool
+    if _pool is None:
+        from concurrent.futures import ThreadPoolExecutor
+        _pool = ThreadPoolExecutor(max_workers=os.cpu_count(), thread_name_prefix="solver")
+    futures = [_pool.submit(solve, b) for b in boards]
+    return lambda: [f.result() for f in futures]
+
+
+def solve_many(boards):
+    """solve() for several boards in parallel threads."""
+    return solve_async(boards)()
+
+
 def empties(board):
     return int((np.asarray(board).reshape(64) == 0).sum())

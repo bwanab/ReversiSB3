@@ -21,8 +21,6 @@ most leaf_solve_empties empty squares are solved exactly (util/endgame.py) and b
 A side with no legal move passes (a node with the single move PASS); passes are part of the tree.
 """
 
-import os
-
 import numpy as np
 
 from util.search import legal_moves, play_move, LEAF_SCORE_SCALE
@@ -147,14 +145,14 @@ class MCTS:
             else:
                 kinds.append((kind, len(net_boards)))
                 net_boards.append(b if kind == "net" else -b)
+        if solve_boards:                                  # solves run during the network call
+            from util.endgame import solve_async
+            solving = solve_async(solve_boards)
         if net_boards:
             logits, values = self.net(np.array(net_boards))
             self.evaluations += len(net_boards)
         if solve_boards:
-            from concurrent.futures import ThreadPoolExecutor
-            from util.endgame import solve
-            with ThreadPoolExecutor(max_workers=os.cpu_count()) as pool:
-                solved = [s for s, _, _ in pool.map(solve, solve_boards)]
+            solved = [s for s, _, _ in solving()]
         nodes = []
         for b, (kind, j) in zip(boards, kinds):
             if kind == "final":
