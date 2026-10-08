@@ -482,8 +482,9 @@ second benchmark.
 | Date | Model | `web_play.py` config | Piccolo level | Result |
 |---|---|---|---|---|
 | 2026-10-06 | `r256x12_mid1` | network only | 5 | win |
-| 2026-10-06 | `r256x12_mid1` | `--strong` | 6 | win |
-| 2026-10-06 | `r256x12_mid1` | `--strong` | 8 (Piccolo's maximum) | win |
+| 2026-10-06 | `r256x12_mid1` | `--strong` (then step-20 negamax) | 6 | win |
+| 2026-10-06 | `r256x12_mid1` | `--strong` (then step-20 negamax) | 8 (Piccolo's maximum) | win |
+| 2026-10-08 | `r256x12_mid1` | `--strong` (MCTS 800, step 26) | 8 | several games from both colors, all won decisively |
 
 Authoritative logs: `exax_pretrain_steps.doc` (25 numbered steps: exact commands and Edax win
 rates after each), `edax_train_results.csv`, `edax_bc_pretrained_training.csv` (BC curves),
