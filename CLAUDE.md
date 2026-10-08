@@ -17,10 +17,11 @@ Edax up to depth 6 almost every game from the standard opening but hits a wall a
 **from randomized openings it wins ~0%**: its Edax results were memorized lines, not playing
 strength (see "Memorization finding" below). Measure progress from random openings.
 
-**Current direction (2026-10-05):** strongest player = `r256x12_sdag1` + the combined search of
-step 20 (`eval_batch.py --search-depth 5 --search-top-k 3 --search-prune-all --solve-empties 18
---leaf-solve-empties 16 --search-depth-early 6 --early-above 30`): even with Edax-9, ~37-47% vs
-Edax-10, ~22% vs Edax-12 from balanced/named openings.
+**Current direction (2026-10-07):** strongest player = `r256x12_mid1` + MCTS (step 26:
+`eval_batch.py --mcts-sims 400 --solve-empties 18 --leaf-solve-empties 16`; `web_play.py --strong`
+uses 800 simulations): ~60% vs Edax-12, about even with Edax-14, ~58-67% vs Egaroucid level 10 and
+~40% vs level 12 from balanced/named openings. Next: the network learning from its own search
+(self-teacher round), the step toward an AlphaZero-style closed loop (`rl_discussion_2026-10-07.md`).
 
 ## Key Architecture Components
 
@@ -160,6 +161,10 @@ Options:
   positions along the named openings in `moves.txt`, symmetry-merged, 8-22 stones) gives a balanced,
   realistic second evaluation next to `--random-opening`
 
+- `--mcts-sims N` (eval_batch.py, web_play.py; the strongest option, step 26): choose the model's
+  moves by MCTS with N simulations (`--mcts-c` 1.0, `--mcts-fpu` 0.3, `--mcts-parallel` 4 are the
+  tuned defaults); combine with `--solve-empties 18 --leaf-solve-empties 16`.
+  `bench_search.py --labels bench/heldout_d14.npz --config ...` compares search settings in minutes.
 - `--search-depth N` (1-2 practical): choose the model's moves by negamax N plies deep, scoring
   leaf positions with the value head in one batched call (`util/search.py`; exact scores for finished
   games, forced passes don't use depth). `--search-top-k K` searches only the policy's top K root
@@ -447,6 +452,24 @@ Each step: what we saw -> what we concluded -> what we did. Details and numbers 
    (+2.5 / +10.5) cost ~9x, about two extra plies at top 3. The policy's probabilities are no better a
    guide to where to search than its ranking. Next: MCTS, which widens where the value head finds lines
    close rather than where the policy is unsure.
+26. **MCTS** (`util/mcts.py`, `--mcts-sims N`): AlphaZero-style PUCT, the policy's softmax as priors
+   and the value head at new positions (one combined trunk pass, `policy_value`), batched across games
+   (4 leaves per game per network call, with virtual loss); finished games and positions <= 16 empties
+   are exact fixed leaves; the root solver (<= 18) unchanged. Tuned on a held-out set
+   (`bench_search.py`: 3,000 positions with 19-50 empties the model reached in play, in no training
+   file, every move scored by Edax d14; `bench/heldout_d14.npz`), regret in discs per move / best move
+   / ms per move: policy 1.39 / 62% / 0; combined negamax (step 20) 0.67 / 74% / 218; MCTS 400 sims
+   0.49 (c 1, fpu 0.1) -> **0.42 / 81% / 153** (c 1.0, fpu reduction 0.3, 4 leaves per round); 800
+   0.36; 1600 0.32 (c 0.5 / 1.5 / 2 and 16 leaves per round worse). Games (`r256x12_mid1`, ~10 min per
+   run at 400 sims, like step 20), win % balanced | named:
+   Edax-8/9/10/12/14 **91 / 81 / 76.5 / 60 / 43.5 | 91.3 / 88.7 / 70 / 63.3 / 50.7** (step 20 negamax:
+   65 / 45 / 41 / 25.5 | 72 / 62 / 45.3 / 20.7); Egaroucid-4/6/8/10/12 **98 / 93.5 / 72.5 / 57.5 / 38.5 |
+   98 / 92.7 / 82 / 66.7 / 40.7** (negamax: 89 / 68 / 36.5 / 18 | 92.7 / 72 / 37.3 / 17.3). 800 sims
+   (balanced, 2x time): Edax-8 93.5, Edax-10 86.5. -> The biggest gain since pruning at every level:
+   +20-45 points everywhere at equal cost. MCTS spends simulations where the value head finds lines
+   close, and averaging over the subtree is robust to single value-head errors that a minimax
+   backup propagates. Even with perfect values MCTS isn't exact (`tests/test_mcts.py`: ~80-88% best
+   moves on 10-empty positions), which the exact solvers cover near the end.
 
 **External check: Piccolo (iPhone app), played by hand via `web_play.py`.** 2026-10-06:
 `r256x12_mid1_CNN_test` with the network only (no search or solver, ~Edax-2 strength) won a game

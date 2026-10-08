@@ -156,6 +156,8 @@ def get_model_move(env, board):
             from util.endgame import solve
             score, _, _ = solve(flat)
             info = {'method': f'solver ({empties} empty)', 'exact_score': int(score)}
+        elif player.mcts is not None:
+            info = {'method': f'MCTS {player.mcts.sims} simulations'}
         elif player.depth > 0:
             depth = player.early_depth if player.early_depth and empties > player.early_above else player.depth
             info = {'method': f'search depth {depth}'}
@@ -666,14 +668,14 @@ def main():
                              'Works with or without search')
     parser.add_argument('--leaf-solve-empties', type=int, default=0,
                         help='with search: score leaves with at most this many empty squares exactly')
+    parser.add_argument('--mcts-sims', type=int, default=0,
+                        help='choose moves by MCTS with this many simulations per move (instead of --search-depth)')
     parser.add_argument('--strong', action='store_true',
-                        help='the strongest configuration: --search-depth 5 --search-depth-early 6 --early-above 30 '
-                             '--solve-empties 18 --leaf-solve-empties 16')
+                        help='the strongest configuration: --mcts-sims 800 --solve-empties 18 --leaf-solve-empties 16')
 
     args = parser.parse_args()
     if args.strong:
-        args.search_depth, args.search_depth_early, args.early_above = 5, 6, 30
-        args.solve_empties, args.leaf_solve_empties = 18, 16
+        args.mcts_sims, args.solve_empties, args.leaf_solve_empties = 800, 18, 16
     device = get_device() if args.device == 'auto' else args.device
 
     # Create environment (needed for loading model)
@@ -694,15 +696,18 @@ def main():
 
     game_state['model'] = model
     game_state['model_name'] = args.model
-    if args.search_depth or args.solve_empties:
+    searching = args.search_depth or args.mcts_sims
+    if searching or args.solve_empties:
         game_state['player'] = SearchPlayer(model, depth=args.search_depth, top_k=args.search_top_k, prune_all=True,
                                             solve_empties=args.solve_empties,
-                                            leaf_solve_empties=args.leaf_solve_empties if args.search_depth else 0,
-                                            early_depth=args.search_depth_early, early_above=args.early_above)
-    parts = [f"search depth {args.search_depth}" if args.search_depth else "network top move"]
+                                            leaf_solve_empties=args.leaf_solve_empties if searching else 0,
+                                            early_depth=args.search_depth_early, early_above=args.early_above,
+                                            mcts_sims=args.mcts_sims)
+    parts = [f"MCTS {args.mcts_sims} simulations" if args.mcts_sims else
+             f"search depth {args.search_depth}" if args.search_depth else "network top move"]
     if args.search_depth_early:
         parts.append(f"depth {args.search_depth_early} above {args.early_above} empties")
-    if args.leaf_solve_empties and args.search_depth:
+    if args.leaf_solve_empties and searching:
         parts.append(f"leaf solves <= {args.leaf_solve_empties}")
     if args.solve_empties:
         parts.append(f"solver <= {args.solve_empties} empties")

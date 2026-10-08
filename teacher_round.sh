@@ -5,7 +5,7 @@
 #   2. label them with Egaroucid at LEVEL, every move scored
 #   3. train BASE (a BC model) on the new labels first, then all Edax label files: edax_train.py keeps
 #      the first copy of a repeated position, so the Egaroucid labels replace Edax's for those positions
-#   4. evaluate with the combined search (step 20) vs Edax 8-12 and Egaroucid 4-10 (balanced and
+#   4. evaluate with MCTS (step 26) vs Edax 8-12 and Egaroucid 4-10 (balanced and
 #      named openings) and head-to-head vs REF
 #
 # Usage: [N=positions] [EMPTIES=min-max] ./teacher_round.sh OUT BASE LEVEL REF
@@ -18,7 +18,7 @@ N=${N:-500000}; EMPTIES=${EMPTIES:-21-40}
 LOG=teacher_${OUT}.log
 POS=positions_${OUT}.npy
 LAB=labels_eg${LEVEL}_${OUT}_all.npz
-STRONG="--search-depth 5 --search-top-k 3 --search-prune-all --solve-empties 18 --leaf-solve-empties 16 --search-depth-early 6 --early-above 30"
+STRONG="--mcts-sims 400 --solve-empties 18 --leaf-solve-empties 16"   # step 26 (was the step-20 negamax)
 cd "$(dirname "$0")"
 say() { echo "[$(date '+%m-%d %H:%M')] $*" | tee -a $LOG; }
 
@@ -43,7 +43,7 @@ if [ ! -f models/${OUT}_CNN_test.zip ]; then
   [ -f models/${OUT}_CNN_test.zip ] || { say "training failed"; exit 1; }
 fi
 pgrep -f "edax_server.py" >/dev/null || [ -S /tmp/edax_server.sock ] || { say "Edax server not running; skipping evaluation"; exit 0; }
-say "4. evaluate (combined search)"
+say "4. evaluate (MCTS 400)"
 for spec in "balanced:-e 200 --start-positions balanced_openings.npy" "named:-e 150 --start-positions opening_positions.npy"; do
   op=${spec%%:*}; args=${spec#*:}
   uv run python eval_batch.py -m ${OUT}_CNN_test -p 8,9,10,12 ${=args} ${=STRONG} 2>&1 | grep "Black wins" \
