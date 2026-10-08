@@ -265,13 +265,16 @@ sets them on the wrapper, not the real env.
 
 ### Endgame solver (`solver/endgame.c`, 2026-10-05)
 Our own exact solver: negamax alpha-beta over bitboards (bit i = square row*8+col), moves ordered
-by the opponent's resulting mobility (corners first), official scoring (empties to the winner).
+by the opponent's resulting mobility (corners first; table move first), official scoring (empties to the winner).
 Build with `solver/build.sh` (macOS .dylib / Linux .so; on macOS it falls back to an older SDK if the
 default one doesn't link, like the Edax build); wrapper `util/endgame.py` (`solve(board)` ->
 (score, best move, nodes)). Validated: exact vs brute force (<= 8 empties), vs Edax solves on all 60
 tested positions with 12-16 empties, and vs minimax down to 16-empty Edax solves at 18-20 empties.
-Speed (M4 Max, positions from real games): 12 empties ~1 ms, 14 ~7 ms, 16 ~44 ms (max 0.14 s), 18
-~0.27 s (max 0.9 s), 20 ~2.2 s (max 8.5 s), 22 ~27 s.
+Speed (M4 Max, positions from real games; since step 27: transposition table, PVS, ETC, stability
+cutoff): 14 empties ~3.6 ms, 16 ~12.5 ms, 18 ~83 ms, 20 ~0.44 s (4-5x faster than the first version:
+14 ~8 ms, 16 ~51, 18 ~376, 20 ~2.2 s). `uv run python solver/bench.py` times it and checks every score
+against `solver/bench_reference.npz` (made with the first version); run it after any solver change.
+`util/endgame.solve_async(boards)` solves on a shared thread pool while other work runs.
 
 **Edax full solves above 16 empties are sometimes off** through our wrapper: asked for depth >=
 empties on 17-22-empty positions, Edax's root score was 2-4 discs wrong in ~25% of cases (its move
@@ -470,6 +473,20 @@ Each step: what we saw -> what we concluded -> what we did. Details and numbers 
    close, and averaging over the subtree is robust to single value-head errors that a minimax
    backup propagates. Even with perfect values MCTS isn't exact (`tests/test_mcts.py`: ~80-88% best
    moves on 10-empty positions), which the exact solvers cover near the end.
+27. **Faster solver, overlapped with the network** (timing MCTS 400 on 500 held-out positions: 175 ms
+   per move = network 27%, exact leaf solves ~53%, Python tree code ~20%). Solver (`solver/endgame.c`,
+   each change kept only if `solver/bench.py` showed a gain with every score equal to the old
+   solver's on 352 real-game positions): per-thread transposition table, PVS (null windows after the
+   first move), enhanced transposition cutoff, stability cutoff (unflippable discs bound the score),
+   branch-free move/flip generation, parity-ordered search over the last 6 empties. Mobility ordering
+   pays at every depth (replacing it with parity ordering below 8-12 empties was 1.1-2.3x slower).
+   16 / 18 / 20 empties: 51 / 376 / 2214 ms -> **12.5 / 83 / 441 ms (4.1 / 4.5 / 5.0x)**. Solves now run
+   on a shared thread pool (`util/endgame.solve_async`; tables survive between calls) during the
+   network call: MCTS 400 175 -> 84 ms per move, and leaf solving is free (faster than without it,
+   since solved leaves skip the network). Games (MCTS 400, solver 18 / leaf 16, balanced Edax-10/12):
+   identical results (76.5 / 60%, same wins, draws, losses), 578 / 559 -> **333 / 346 s**. Deeper solving
+   (20 / 18) 80 / 63% at 571 s: within noise, so 18 / 16 stays. -> MCTS is now ~62% network, ~38%
+   Python; for label generation the next lever is several worker processes sharing the GPU.
 
 **External check: Piccolo (iPhone app), played by hand via `web_play.py`.** 2026-10-06:
 `r256x12_mid1_CNN_test` with the network only (no search or solver, ~Edax-2 strength) won a game
