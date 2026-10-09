@@ -189,6 +189,54 @@ class TestWebPlay(unittest.TestCase):
                 wp.STORE.locked = original
         self.assertEqual(r.status_code, 409)
 
+    def find_pass_setup(self):
+        """A game (model plays white) with the person to move, a person's move h and a model reply m
+        after which the person must pass while the model can move again."""
+        rng = random.Random(7)
+        for _ in range(3000):
+            game = wp.Game(wp.WHITE, 3)
+            for _ in range(rng.randrange(20, 56)):
+                if game.over:
+                    break
+                game.apply(int(rng.choice(list(game.legal()))), "human" if game.to_move == wp.BLACK else "model")
+            if game.over or game.to_move != wp.BLACK:
+                continue
+            board = game.board * wp.BLACK                           # the person's (black's) view
+            for h in legal_moves(board):
+                b2 = play_move(board, int(h))                         # white (model) to move
+                if not len(legal_moves(b2)):
+                    continue
+                for m in legal_moves(b2):
+                    b3 = play_move(b2, int(m))                        # black (person) to move?
+                    if not len(legal_moves(b3)) and len(legal_moves(-b3)):
+                        return game, int(h), int(m)
+        self.skipTest("no pass position found")
+
+    def test_model_sequence_when_person_passes(self):
+        game, h, m = self.find_pass_setup()
+        wp.STORE.create(game.id, game.to_dict(), 7200)
+        original = wp.model_move
+        first = [True]
+
+        def stub(g):
+            action = m if first[0] else int(g.legal()[0])
+            first[0] = False
+            return action, {"method": "stub", "analysis": []}
+        wp.model_move = stub
+        try:
+            r = self.move(game.id, h).get_json()
+        finally:
+            wp.model_move = original
+        seq = r['model_moves']
+        self.assertGreaterEqual(len(seq), 2)
+        self.assertEqual(seq[0], m)
+        self.assertEqual(seq[-1], r['last_move']['action'])
+        stored = self.stored(game.id)
+        self.assertEqual([x['action'] for x in stored.history[-len(seq):]], seq)          # in play order
+        self.assertTrue(all(x['by'] == 'model' for x in stored.history[-len(seq):]))
+        u = self.c.post('/api/undo', json={'game_id': game.id}).get_json()
+        self.assertEqual(u['model_moves'], [])
+
     def test_game_record(self):
         with tempfile.TemporaryDirectory() as d:
             wp.Config.record, games_dir, wp.GAMES_DIR = True, wp.GAMES_DIR, d

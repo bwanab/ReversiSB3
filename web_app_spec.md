@@ -107,6 +107,7 @@ model move's `method` starts with its level (e.g. `level 7: MCTS 100 simulations
   "level": 10,
   "can_undo": true,
   "can_redo": false,
+  "model_moves": [37],
   "last_move": { ... },
   "model_passed": true
 }
@@ -127,6 +128,9 @@ model move's `method` starts with its level (e.g. `level 7: MCTS 100 simulations
   `MCTS N simulations`, `search depth N` or `solver (N empty)`, prefixed with the level unless the
   custom player is used. `exact_score`: with the solver, the final disc difference for the model with
   perfect play. After an undo, `last_move` is the model's latest remaining move, without `analysis`.
+- `model_moves`: the model's moves since the person's last move, in the order played. Usually one; two
+  or more when the person had to pass in between (the page then colors the earlier ones amber and
+  numbers all of them 1, 2, ...). Empty after an undo.
 - `model_passed: true`: the model had no legal move after the person's move.
 
 **Errors**: a JSON object `{"error": "<message>"}` with HTTP status:

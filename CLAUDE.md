@@ -851,7 +851,7 @@ of the same fork (`bwanab/edax-reversi`, `src/edax_wrapper.c`) and the library p
 Run the suite with `./run_tests.sh` (all tests) or `./run_tests.sh <name>` for one group
 (`environment`, `scenarios`, `edge_cases`, `training`, `integration`, `bc`, `focused`,
 `training_issues`, `step`, `lr`, `features`, `resnet`, `play`, `starts`, `refresh`, `openings`, `mix`, `search`, `mcts`, `levels`, `web`, `endgame`, `egaroucid`, ...).
-The script sets `PYTHONPATH` to the project root and runs through `uv run`. All 193 tests in `tests/`
+The script sets `PYTHONPATH` to the project root and runs through `uv run`. All 195 tests in `tests/`
 are part of the runner and pass. `test_edax_opponent.py`
 in the project root is a separate script that needs the Edax server running.
 

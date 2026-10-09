@@ -110,6 +110,7 @@ class Game:
         self.redo = []                # actions of undone human moves
         self.over, self.winner = False, None
         self.last_move = None         # info on the model's latest move
+        self.model_sequence = []      # the model's moves since the person's last move, in order (2+ when the person passed)
         self.model_passed = False
         self.started = time.strftime("%Y%m%d-%H%M%S")
 
@@ -118,7 +119,8 @@ class Game:
         return {"id": self.id, "model_color": self.model_color, "level": self.level, "started": self.started,
                 "moves": [[m["action"], 1 if m["color"] == "black" else -1, m["by"], m.get("method")]
                           for m in self.history],
-                "redo": self.redo, "last_move": self.last_move, "model_passed": self.model_passed}
+                "redo": self.redo, "last_move": self.last_move, "model_passed": self.model_passed,
+                "model_sequence": self.model_sequence}
 
     @classmethod
     def from_dict(cls, d):
@@ -129,6 +131,7 @@ class Game:
             game.apply(action, by, method)
         game.started, game.redo = d["started"], list(d["redo"])
         game.last_move, game.model_passed = d["last_move"], d["model_passed"]
+        game.model_sequence = list(d.get("model_sequence", []))
         return game
 
     @property
@@ -161,6 +164,7 @@ class Game:
             action, info = model_move(self)
             self.apply(action, "model", info["method"])
             self.last_move = {"action": action, "player": "model", **info}
+            self.model_sequence.append(int(action))
 
     def human_move(self, action, from_redo=False):
         if self.over:
@@ -174,7 +178,7 @@ class Game:
         if not from_redo:
             self.redo = []
         self.apply(action, "human")
-        self.last_move = None
+        self.last_move, self.model_sequence = None, []
         self.model_passed = not self.over and self.to_move == self.human_color
         self.model_moves()
 
@@ -188,6 +192,7 @@ class Game:
         self.board = entry["board_before"].copy()
         del self.history[human[-1]:]
         self.to_move, self.over, self.winner, self.model_passed = self.human_color, False, None, False
+        self.model_sequence = []
         model = [m for m in self.history if m["by"] == "model"]
         self.last_move = {"action": model[-1]["action"], "player": "model",
                           "method": model[-1].get("method", "")} if model else None
@@ -216,7 +221,7 @@ class Game:
                "piece_count": {"black": int((self.board == BLACK).sum()), "white": int((self.board == WHITE).sum())},
                "game_over": self.over, "winner": self.winner, "model_color": COLOR_NAME[self.model_color],
                "level": self.level, "can_undo": any(m["by"] == "human" for m in self.history),
-               "can_redo": bool(self.redo) and not self.over}
+               "can_redo": bool(self.redo) and not self.over, "model_moves": self.model_sequence}
         if self.last_move:
             out["last_move"] = self.last_move
         if self.model_passed:

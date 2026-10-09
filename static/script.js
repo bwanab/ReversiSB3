@@ -210,10 +210,11 @@ function updateGameState(data) {
     // Highlight valid moves
     highlightValidMoves();
 
-    // Highlight last move
+    // Highlight last move; when the person had to pass, number the model's moves in order
     if (data.last_move) {
         highlightLastMove(data.last_move.action);
-        updateLastMoveDisplay(data.last_move);
+        highlightModelSequence(data.model_moves || []);
+        updateLastMoveDisplay(data.last_move, data.model_moves || []);
     }
 
     // Update undo/redo button states
@@ -241,7 +242,7 @@ function renderBoard(board) {
         cell.innerHTML = '';
 
         // Remove highlighting classes
-        cell.classList.remove('valid-move', 'last-move');
+        cell.classList.remove('valid-move', 'last-move', 'model-sequence');
 
         // Add piece if present
         if (value === 1) {
@@ -283,6 +284,29 @@ function highlightLastMove(action) {
     }
 }
 
+function highlightModelSequence(moves) {
+    if (moves.length < 2) {
+        return;
+    }
+    moves.forEach((action, i) => {
+        const cell = document.querySelector(`[data-action="${action}"]`);
+        if (!cell) {
+            return;
+        }
+        if (i < moves.length - 1) {
+            cell.classList.add('model-sequence');   // earlier moves; the last keeps the last-move color
+        }
+        const badge = document.createElement('div');
+        badge.className = 'move-order';
+        badge.textContent = String(i + 1);
+        cell.appendChild(badge);
+    });
+}
+
+function actionNotation(action) {
+    return String.fromCharCode(65 + (action % 8)) + (Math.floor(action / 8) + 1);
+}
+
 function updateTurnIndicator() {
     const turnText = document.getElementById('turn-text');
 
@@ -300,7 +324,7 @@ function updateTurnIndicator() {
     }
 }
 
-function updateLastMoveDisplay(lastMove) {
+function updateLastMoveDisplay(lastMove, modelMoves = []) {
     const lastMoveDiv = document.getElementById('last-move');
     const action = lastMove.action;
     const row = Math.floor(action / 8);
@@ -310,7 +334,12 @@ function updateLastMoveDisplay(lastMove) {
     const rowNumber = row + 1; // 1-8
 
     const player = lastMove.player === 'model' ? 'Model' : 'You';
-    let displayText = `${player}: ${colLetter}${rowNumber}`;
+    let displayText = '';
+    if (modelMoves.length > 1) {
+        displayText = `You had no move, so the model played ${modelMoves.length} moves: `
+            + modelMoves.map(actionNotation).join(', then ') + '\n';
+    }
+    displayText += `${player}: ${colLetter}${rowNumber}`;
 
     // If model move with analysis, show top move probabilities
     if (gameState.showHints && lastMove.player === 'model' && lastMove.analysis && lastMove.analysis.length > 0) {

@@ -227,6 +227,29 @@ select:focus {
     background: #00bcd4;  /* Brighter cyan/blue - much more visible */
 }
 
+/* The model's earlier moves when the person had to pass (the last one keeps .last-move) */
+.cell.model-sequence {
+    background: #ed8936;  /* amber */
+}
+
+/* Order of the model's moves in such a sequence: 1, 2, ... */
+.move-order {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    min-width: 1.3em;
+    height: 1.3em;
+    line-height: 1.3em;
+    border-radius: 50%;
+    background: #e53e3e;
+    color: white;
+    font-size: 0.75em;
+    font-weight: 700;
+    text-align: center;
+    pointer-events: none;
+    z-index: 11;
+}
+
 /* Move Probability Display */
 .move-probability {
     position: absolute;
