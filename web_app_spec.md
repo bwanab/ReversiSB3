@@ -36,21 +36,24 @@ uv run python web_play.py -m r256x12_mid1_CNN_test               # then open htt
 
 Defined in `util/levels.py` (also `eval_batch.py --level N`); level 10 is the strongest player.
 
-| Level | Player |
-| --- | --- |
-| 1 | policy network, sampled at temperature 1.5 |
-| 2 | policy network, sampled at temperature 0.7 |
-| 3 | policy network, top move |
-| 4 | MCTS 16 simulations |
-| 5 | MCTS 32, solver <= 10 empties |
-| 6 | MCTS 64, solver <= 12 |
-| 7 | MCTS 128, solver <= 14, leaf solves <= 12 |
-| 8 | MCTS 200, solver <= 16, leaf solves <= 14 |
-| 9 | MCTS 400, solver <= 18, leaf solves <= 16 |
-| 10 | MCTS 800, solver <= 18, leaf solves <= 16 |
+| Level | Player | Strength (measured, step 31) |
+| --- | --- | --- |
+| 1 | policy network, sampled at temperature 1.5 | well below Edax depth 1 |
+| 2 | policy network, sampled at temperature 0.7 | about Edax depth 1 |
+| 3 | policy network, top move | about Edax depth 2 |
+| 4 | MCTS 16 simulations | about Edax depth 4 |
+| 5 | MCTS 32, solver <= 10 empties | about Edax depth 5 |
+| 6 | MCTS 64, solver <= 12 | about Edax depth 7 |
+| 7 | MCTS 100, solver <= 14 | about Edax depth 8-9 |
+| 8 | MCTS 200, solver <= 16, leaf solves <= 14 | about Edax depth 10-11 |
+| 9 | MCTS 400, solver <= 18, leaf solves <= 16 | about Edax depth 13 |
+| 10 | MCTS 800, solver <= 18, leaf solves <= 16 | about Edax depth 15; even with Egaroucid level 12 |
+
+"About Edax depth N": wins roughly half its games against Edax searching N moves deep, from 200
+balanced openings, with `r256x12_mid1`. MCTS levels stop early when the move is decided (step 30).
 
 A game's level can change at any time (`/api/set_level`); it applies from the model's next move. Each
-model move's `method` starts with its level (e.g. `level 7: MCTS 128 simulations`).
+model move's `method` starts with its level (e.g. `level 7: MCTS 100 simulations`).
 
 ## Page options
 
@@ -170,14 +173,15 @@ The current state, unchanged.
 ### `POST /api/set_level`
 
 Request: `{"game_id": "...", "level": 1-10 | "custom"}`. Response:
-`{"game_id": "...", "level": 7, "description": "level 7: MCTS 128 simulations, leaf solves <= 12, solver <= 14 empties"}`.
+`{"game_id": "...", "level": 7, "description": "level 7: MCTS 100 simulations, solver <= 14 empties"}`.
 
 ### `GET /api/levels`
 
 The levels and the server's default (not tied to a game):
 
 ```json
-{"levels": [{"level": 1, "description": "policy network, sampled (temperature 1.5)"}, ...,
+{"levels": [{"level": 1, "description": "policy network, sampled (temperature 1.5)",
+             "strength": "well below Edax depth 1 (wins 14.5% vs Edax-1)"}, ...,
             {"level": "custom", "description": "custom: MCTS 400 simulations, ..."}],
  "default": 10}
 ```

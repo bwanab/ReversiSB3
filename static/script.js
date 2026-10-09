@@ -36,7 +36,7 @@ async function loadLevels() {
             const option = document.createElement('option');
             option.value = level.level;
             option.textContent = level.level === 'custom' ? 'Custom' : `${level.level}`;
-            option.title = level.description;
+            option.title = level.strength ? `${level.description}; ${level.strength}` : level.description;
             select.appendChild(option);
         });
         select.value = String(data.default);

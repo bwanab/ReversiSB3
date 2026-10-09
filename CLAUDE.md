@@ -530,6 +530,15 @@ Each step: what we saw -> what we concluded -> what we did. Details and numbers 
    55.5, 68.5 / 50.5 (452-489 s)**. -> +5-13 points at equal time; base 800 at ~1.35x beats Edax-14
    and is even with Egaroucid level 12. Level 9 (MCTS 400) and level 10 (MCTS 800) of
    `util/levels.py` get this automatically.
+31. **Calibrating the strength levels** (`eval_batch.py --level N`, `r256x12_mid1`, 200 balanced
+   openings, log `runs/level_calibration.log`). Win % (Edax depth): L1 (policy sampled, T 1.5) 14.5 (1),
+   1 (2); L2 (T 0.7) 50 (1), 24 (2); L3 (top move) 87.5 / 58.5 / 38 / 22.5 (1-4); L4 (MCTS 16) 90.5 / 67.5 /
+   48 / 27.5 (2-5); L5 (MCTS 32, solver 10) 85.5 / 69 / 50.5 / 40.5 (3-6); L6 (MCTS 64, solver 12) 87 /
+   77.5 / 59 / 49 (4-7); first L7 (MCTS 128, solver 14, leaf 12) 94.5 / 88 / 75 / 73 (5-8): too close to
+   L8 (MCTS 200, solver 16, leaf 14: 92 / 86.5 / 76.5 / 69, 6-9); L7 changed to MCTS 100, solver 14, no
+   leaf solves: 68 / 58.5 / 44 (7-9). L9/L10 from step 30. -> Roughly even with Edax depth: L1 well
+   below 1, L2 1, L3 2, L4 4, L5 5, L6 7, L7 8-9, L8 10-11, L9 ~13, L10 ~15. Leaf solving is worth a
+   lot at low budgets. Shown in the page (hover over the level) and `/api/levels`.
 
 **External check: Piccolo (iPhone app), played by hand via `web_play.py`.** 2026-10-06:
 `r256x12_mid1_CNN_test` with the network only (no search or solver, ~Edax-2 strength) won a game
@@ -548,7 +557,7 @@ second benchmark.
 
 **Strength levels and hints** (2026-10-09): `web_play.py` offers levels 1-10 (`util/levels.py`; `--level N`,
 default 10 = `--strong`; changeable in the page, also mid-game), from the policy sampled at temperature
-1.5 up to MCTS 800 with the solvers, and a "Show hints" checkbox (move probabilities, top policy
+1.5 (well below Edax-1) up to MCTS 800 with the solvers (~Edax-15; calibration in step 31), and a "Show hints" checkbox (move probabilities, top policy
 moves, solver verdict). `eval_batch.py --level N` plays a level for calibration. API:
 `web_app_spec.md`. Hardened for public use the same day (security audit in `web_app_spec.md`): games
 by unguessable `game_id` (several players at once), validated moves, generic errors, limits on games /

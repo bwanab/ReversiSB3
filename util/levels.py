@@ -2,7 +2,8 @@
 Playing strength levels 1-10, like the levels of other Othello programs (web_play.py --level,
 eval_batch.py --level). Level 10 is the strongest player (web_play.py --strong); below it the MCTS
 budget roughly halves per level and the exact endgame solver starts later; levels 1-3 use the policy
-network alone. Measured strength per level: CLAUDE.md, step 31.
+network alone. STRENGTH: the Edax search depth each level plays about even with, measured with
+r256x12_mid1 on the 200 balanced openings (CLAUDE.md, step 31).
 """
 
 import numpy as np
@@ -16,12 +17,25 @@ LEVELS = {
     4: dict(mcts_sims=16),
     5: dict(mcts_sims=32, solve_empties=10),
     6: dict(mcts_sims=64, solve_empties=12),
-    7: dict(mcts_sims=128, solve_empties=14, leaf_solve_empties=12),
+    7: dict(mcts_sims=100, solve_empties=14),
     8: dict(mcts_sims=200, solve_empties=16, leaf_solve_empties=14),
     9: dict(mcts_sims=400, solve_empties=18, leaf_solve_empties=16),
     10: dict(mcts_sims=800, solve_empties=18, leaf_solve_empties=16),
 }
 STRONGEST = max(LEVELS)
+
+STRENGTH = {
+    1: "well below Edax depth 1 (wins 14.5% vs Edax-1)",
+    2: "about Edax depth 1",
+    3: "about Edax depth 2",
+    4: "about Edax depth 4",
+    5: "about Edax depth 5",
+    6: "about Edax depth 7",
+    7: "about Edax depth 8-9",
+    8: "about Edax depth 10-11",
+    9: "about Edax depth 13",
+    10: "about Edax depth 15 (wins 55.5% vs Edax-14, even with Egaroucid level 12)",
+}
 
 
 def describe(level):

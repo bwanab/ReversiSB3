@@ -27,7 +27,7 @@ import time
 import numpy as np
 from flask import Flask, jsonify, render_template, request
 
-from util.levels import LEVELS, STRONGEST, describe, make_player
+from util.levels import LEVELS, STRENGTH, STRONGEST, describe, make_player
 from util.search import SearchPlayer, legal_moves, play_move, policy_logits
 from web_store import MemoryStore, RedisStore, StoreBusy
 
@@ -427,7 +427,7 @@ def set_level():
 
 @app.route("/api/levels", methods=["GET"])
 def levels():
-    out = [{"level": n, "description": describe(n)} for n in sorted(LEVELS)]
+    out = [{"level": n, "description": describe(n), "strength": STRENGTH[n]} for n in sorted(LEVELS)]
     if Config.custom_player is not None:
         out.append({"level": "custom", "description": Config.custom_desc})
     return jsonify({"levels": out, "default": Config.default_level})
