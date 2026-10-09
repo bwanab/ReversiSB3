@@ -95,6 +95,9 @@ function setupEventListeners() {
     document.getElementById('redo-btn').addEventListener('click', redoMove);
     document.getElementById('copy-moves-btn').addEventListener('click', copyMoves);
     document.getElementById('level').addEventListener('change', changeLevel);
+    document.getElementById('save-btn').addEventListener('click', saveGame);
+    document.getElementById('load-btn').addEventListener('click', () => document.getElementById('load-file').click());
+    document.getElementById('load-file').addEventListener('change', loadGameFile);
     const hints = document.getElementById('show-hints');
     hints.checked = gameState.showHints;
     hints.addEventListener('change', toggleHints);
@@ -189,6 +192,10 @@ function updateGameState(data) {
     gameState.lastData = data;
     if (data.game_id) {
         gameState.gameId = data.game_id;
+        document.getElementById('save-btn').disabled = false;
+    }
+    if (data.model_color) {
+        gameState.modelColor = data.model_color;
     }
     gameState.board = data.board;
     gameState.validMoves = data.valid_moves || [];
@@ -305,6 +312,86 @@ function highlightModelSequence(moves) {
 
 function actionNotation(action) {
     return String.fromCharCode(65 + (action % 8)) + (Math.floor(action / 8) + 1);
+}
+
+// Save: download the game's moves, model color and level (GET /api/export) as a small JSON file
+async function saveGame() {
+    if (!gameState.gameId) {
+        return;
+    }
+    try {
+        const response = await fetch('/api/export?game_id=' + encodeURIComponent(gameState.gameId));
+        const data = await response.json();
+        if (!response.ok) {
+            showError(data.error || 'Failed to save the game');
+            return;
+        }
+        const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '-');
+        const blob = new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `reversi-${stamp}.json`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    } catch (error) {
+        showError('Network error: ' + error.message);
+    }
+}
+
+// Load: a saved file continues with its own model color and level; a plain move list (e.g. f5d6c3)
+// uses the color and level chosen in the controls
+async function loadGameFile(event) {
+    const file = event.target.files[0];
+    event.target.value = '';             // allow loading the same file again
+    if (!file) {
+        return;
+    }
+    if (file.size > 4000) {
+        showError('That file is too large to be a saved game');
+        return;
+    }
+    const text = await file.text();
+    let request;
+    try {
+        const saved = JSON.parse(text);
+        if (!saved || typeof saved.moves === 'undefined') {
+            throw new Error('not a saved game');
+        }
+        request = { moves: saved.moves, model_color: saved.model_color, level: saved.level };
+    } catch (e) {
+        const levelValue = document.getElementById('level').value;
+        request = {
+            moves: text.trim(),
+            model_color: document.getElementById('model-color').value,
+            level: levelValue === '' ? null : (levelValue === 'custom' ? 'custom' : Number(levelValue))
+        };
+    }
+    try {
+        const response = await fetch('/api/load_game', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(request)
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            showError(data.error || 'Failed to load the game');
+            return;
+        }
+        document.getElementById('model-color').value = data.model_color;
+        if (data.level !== undefined && data.level !== null) {
+            document.getElementById('level').value = String(data.level);
+            updateLevelTitle();
+        }
+        document.getElementById('game-status').textContent = '';
+        document.getElementById('last-move').textContent = '-';
+        updateGameState(data);
+    } catch (error) {
+        showError('Network error: ' + error.message);
+    }
 }
 
 function updateTurnIndicator() {

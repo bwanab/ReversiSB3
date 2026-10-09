@@ -39,6 +39,8 @@ BLACK, WHITE = 1, -1
 COLOR_NAME = {BLACK: "black", WHITE: "white"}
 GAMES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "games")
 GAME_ID_RE = re.compile(r"^[A-Za-z0-9_-]{16,64}$")
+SQUARE_RE = re.compile(r"[a-hA-H][1-8]")
+SAVE_FORMAT = "reversisb3-game"
 
 
 class Config:
@@ -81,6 +83,31 @@ def player_for(level):
 
 def level_desc(level):
     return Config.custom_desc if level == "custom" else f"level {level}: {describe(level)}"
+
+
+def parse_moves(value):
+    """Moves to replay, as actions 0-63: a transcript string ('f5d6c3...', spaces/commas/dashes allowed)
+    or a list of square names or actions."""
+    if isinstance(value, str):
+        text = re.sub(r"[\s,;.\-]+", "", value)
+        if len(text) > 120 or SQUARE_RE.sub("", text):
+            raise ApiError("moves must be squares like 'f5d6c3' (at most 60 moves)")
+        squares = SQUARE_RE.findall(text)
+    elif isinstance(value, list) and len(value) <= 60:
+        squares = value
+    else:
+        raise ApiError("moves must be a transcript string or a list of at most 60 moves")
+    if len(squares) > 60:
+        raise ApiError("at most 60 moves")
+    actions = []
+    for sq in squares:
+        if isinstance(sq, str) and SQUARE_RE.fullmatch(sq):
+            actions.append((int(sq[1]) - 1) * 8 + "abcdefgh".index(sq[0].lower()))
+        elif isinstance(sq, int) and not isinstance(sq, bool) and 0 <= sq < 64:
+            actions.append(sq)
+        else:
+            raise ApiError("each move must be a square like 'f5' or an action 0-63")
+    return actions
 
 
 def parse_level(value):
@@ -391,6 +418,44 @@ def new_game():
     with open_game(game.id) as game:
         game.model_moves()
         return jsonify(game.state())
+
+
+@app.route("/api/load_game", methods=["POST"])
+def load_game():
+    """A new game continuing from a list of moves (a file saved by /api/export, or any transcript from
+    the standard start). Each move is checked against the rules; passes are inferred. If it is then the
+    model's turn, it moves."""
+    data = body()
+    rate_limit("new_game", Config.new_games_per_minute)
+    color = data.get("model_color", "black")
+    if color not in ("black", "white"):
+        raise ApiError("model_color must be 'black' or 'white'")
+    level = Config.default_level if data.get("level") is None else parse_level(data["level"])
+    actions = parse_moves(data.get("moves", ""))
+    game = Game(BLACK if color == "black" else WHITE, level)
+    for i, action in enumerate(actions):
+        if game.over:
+            raise ApiError(f"the game is already over before move {i + 1}")
+        if action not in set(int(m) for m in game.legal()):
+            raise ApiError(f"move {i + 1} ({notation(action).lower()}) is illegal for {COLOR_NAME[game.to_move]}")
+        game.apply(action, "model" if game.to_move == game.model_color else "human")
+    if not STORE.create(game.id, game.to_dict(), Config.idle_timeout):
+        raise ApiError("the server is busy; try again later", 503)
+    with open_game(game.id) as game:
+        game.model_moves()
+        return jsonify(game.state())
+
+
+@app.route("/api/export", methods=["GET"])
+def export_game():
+    """What the page saves to a file: the moves as a transcript, the model's color and the level."""
+    with open_game(game_id_of(request.args.get("game_id")), write=False) as game:
+        return jsonify({"format": SAVE_FORMAT, "version": 1,
+                        "moves": "".join(notation(m["action"]).lower() for m in game.history),
+                        "model_color": COLOR_NAME[game.model_color], "level": game.level,
+                        "model": Config.model_name, "saved": time.strftime("%Y-%m-%d %H:%M:%S"),
+                        "black": int((game.board == BLACK).sum()), "white": int((game.board == WHITE).sum()),
+                        "finished": game.over})
 
 
 @app.route("/api/make_move", methods=["POST"])

@@ -38,6 +38,13 @@
                     <button id="undo-btn" class="btn btn-secondary" disabled>⟲ Undo</button>
                     <button id="redo-btn" class="btn btn-secondary" disabled>⟳ Redo</button>
                 </div>
+                <div class="control-group">
+                    <button id="save-btn" class="btn btn-secondary" disabled
+                            title="Download this game (moves, model color, level) to continue later">💾 Save game</button>
+                    <button id="load-btn" class="btn btn-secondary"
+                            title="Continue a saved game, or a move list like f5d6c3 (the model takes the color chosen above)">📂 Load game</button>
+                    <input type="file" id="load-file" accept=".json,.txt,application/json,text/plain" hidden>
+                </div>
             </div>
 
             <!-- Game Info -->

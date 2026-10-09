@@ -237,6 +237,62 @@ class TestWebPlay(unittest.TestCase):
         u = self.c.post('/api/undo', json={'game_id': game.id}).get_json()
         self.assertEqual(u['model_moves'], [])
 
+    def load(self, moves, **kw):
+        return self.c.post('/api/load_game', json={'moves': moves, **kw})
+
+    def test_save_and_load(self):
+        random.seed(8)
+        g = self.new()
+        for _ in range(7):
+            g = self.move(g['game_id'], random.choice(g['valid_moves'])['action']).get_json()
+        saved = self.c.get('/api/export', query_string={'game_id': g['game_id']}).get_json()
+        self.assertEqual(saved['format'], wp.SAVE_FORMAT)
+        self.assertEqual(len(saved['moves']), 2 * len(self.stored(g['game_id']).history))
+        r = self.load(saved['moves'], model_color=saved['model_color'], level=saved['level']).get_json()
+        self.assertNotEqual(r['game_id'], g['game_id'])                       # a new game
+        for key in ('board', 'current_player', 'model_color', 'level', 'piece_count'):
+            self.assertEqual(r[key], g[key], key)
+        self.assertEqual(sorted(m['action'] for m in r['valid_moves']), sorted(m['action'] for m in g['valid_moves']))
+        # it continues: a move works, and undo reaches back into the loaded moves
+        r2 = self.move(r['game_id'], r['valid_moves'][0]['action'])
+        self.assertEqual(r2.status_code, 200)
+        self.assertEqual(self.c.post('/api/undo', json={'game_id': r['game_id']}).status_code, 200)
+        self.assertEqual(self.c.post('/api/undo', json={'game_id': r['game_id']}).status_code, 200)
+
+    def test_load_formats_and_model_turn(self):
+        a = self.load('f5d6c3').get_json()                          # model black: white to move after 3 moves
+        b = self.load('F5 d6, C3', model_color='black').get_json()
+        c = self.load(['f5', 43, 'C3']).get_json()                  # d6 = row 6, col d = 5*8+3 = 43
+        self.assertEqual(a['board'], b['board'])
+        self.assertEqual(a['board'], c['board'])
+        self.assertEqual(a['current_player'], 'white')
+        self.assertNotIn('last_move', a)                            # the person (white) is to move
+        w = self.load('f5', model_color='white').get_json()         # model white is to move: it replies
+        self.assertEqual(w['last_move']['player'], 'model')
+        self.assertEqual(w['current_player'], 'black')
+        self.assertEqual(w['piece_count']['black'] + w['piece_count']['white'], 6)
+
+    def test_load_rejects_bad_input(self):
+        r = self.load('f5f5')
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('move 2', r.get_json()['error'])
+        for bad in ('a1', 'f5x9', 'hello', 'f5' * 61, ['f5'] * 61, [64], [True], {'x': 1}, 5):
+            self.assertEqual(self.load(bad).status_code, 400, bad)
+        self.assertEqual(self.load('f5', model_color='green').status_code, 400)
+        self.assertEqual(self.load('f5', level=99).status_code, 400)
+
+    def test_load_finished_game(self):
+        random.seed(9)
+        g = self.new()
+        while not g['game_over']:
+            g = self.move(g['game_id'], random.choice(g['valid_moves'])['action']).get_json()
+        saved = self.c.get('/api/export', query_string={'game_id': g['game_id']}).get_json()
+        self.assertTrue(saved['finished'])
+        r = self.load(saved['moves'], model_color=saved['model_color']).get_json()
+        self.assertTrue(r['game_over'])
+        self.assertEqual(r['winner'], g['winner'])
+        self.assertEqual(self.load(saved['moves'] + 'a1').status_code, 400)  # no moves after the end
+
     def test_game_record(self):
         with tempfile.TemporaryDirectory() as d:
             wp.Config.record, games_dir, wp.GAMES_DIR = True, wp.GAMES_DIR, d

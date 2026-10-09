@@ -60,6 +60,11 @@ model move's `method` starts with its level (e.g. `level 7: MCTS 100 simulations
 - **Model plays as**: black or white, for the next new game.
 - **Strength**: the level (1-10, or Custom); sent with "New Game", and changes during a game apply to
   that game from the model's next move.
+- **Save game**: downloads the game as a small JSON file (`reversi-<date>-<time>.json`, see
+  `/api/export`), e.g. to continue a long game against a person elsewhere after a wait.
+- **Load game**: continues a saved file (with its own model color and level), or a plain move list
+  such as `f5d6c3d3` in a `.txt` file (the model takes the color and level chosen in the controls).
+  Loading starts a new game (new id) at that position; if it is the model's turn, it moves.
 - **Show hints**: shows or hides the model's move probabilities on your candidate moves, its list of
   top policy moves, and the solver's verdict ("model wins by N with perfect play"). Display only: the
   server always sends them. Remembered per browser (`localStorage`).
@@ -169,6 +174,28 @@ after it, so it is the person's turn again in the position before that move. Res
 Request: `{"game_id": "..."}`. Replays the most recently undone move of the person; the model then
 replies again (at higher levels and with sampling it may choose differently). A new move clears the
 redo list. Response: the state.
+
+### `POST /api/load_game`
+
+Request: `{"moves": "f5d6c3..." | ["f5", "d6", ...] | [37, 43, ...], "model_color": "black" | "white",
+"level": 1-10 | "custom"}` (`model_color` and `level` optional, as in `new_game`). A new game replaying
+the moves from the standard start: each move must be legal for the side to move; passes are inferred
+(when the side to move has no legal move, the other side moves). Square names are case-insensitive;
+spaces, commas, dashes and dots between them are ignored; at most 60 moves. If the model is then to
+move, it moves. Response: the state of the new game. Errors (400) name the first illegal move, e.g.
+`"move 2 (f5) is illegal for white"`.
+
+### `GET /api/export?game_id=...`
+
+What the page saves:
+
+```json
+{"format": "reversisb3-game", "version": 1, "moves": "f5d6c3d3c4", "model_color": "black",
+ "level": 10, "model": "r256x12_mid1_CNN_test", "saved": "2026-10-09 15:30:12",
+ "black": 7, "white": 2, "finished": false}
+```
+
+`moves`, `model_color` and `level` are what `load_game` needs; the rest is for reading the file.
 
 ### `GET /api/game_state?game_id=...`
 
