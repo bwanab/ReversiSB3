@@ -487,6 +487,20 @@ Each step: what we saw -> what we concluded -> what we did. Details and numbers 
    identical results (76.5 / 60%, same wins, draws, losses), 578 / 559 -> **333 / 346 s**. Deeper solving
    (20 / 18) 80 / 63% at 571 s: within noise, so 18 / 16 stays. -> MCTS is now ~62% network, ~38%
    Python; for label generation the next lever is several worker processes sharing the GPU.
+28. **Self-teacher round 1** (`N=400000 W=2 GAMES=256 ./self_teacher_round.sh r256x12_st1 r256x12_mid1`, log
+   `selfteach_r256x12_st1.log`): MCTS 400 self-play from `r256x12_mid1` (`selfplay_mcts.py`: varied
+   starts, first 8 moves sampled by visits, positions > 18 empties recorded with visit distribution,
+   root value and outcome; 405,940 positions in 8.6 h, 13 positions/s; 1 worker 11.2/s, 2 workers 13.5,
+   3 workers 13.2, 512 games in one worker 10.7: GPU-bound), then `mcts_train.py` (visits as policy
+   target, value 0.5 root value + 0.5 tanh(outcome/16), 1M Edax labels replayed, 2 epochs, lr 2e-5).
+   Visit cross-entropy 1.213 -> 1.180, Edax validation unchanged. Held-out search regret (3,000
+   positions): policy 1.376 -> 1.363, MCTS 400 0.466 -> 0.460. Games, MCTS 400, win % balanced | named,
+   mid1 -> st1: Edax-10 76.5 -> 78 | 70 -> 80, Edax-12 60 -> 59 | 63.3 -> 64.7, Edax-14 43.5 -> 42.5 |
+   50.7 -> 59.3, Egaroucid-10 57.5 -> 54 | 66.7 -> 52.7, Egaroucid-12 38.5 -> 30 | 40.7 -> 43.3 (mean
+   -0.4); network-only head-to-head 51.7% / 48.8%. -> Null result, but the update was gentle (28% of
+   the training data, small move toward the visit targets), like steps 21/24. Next: the same data,
+   trained harder (less replay, higher lr, more epochs), to see whether the network can absorb its
+   search and whether that helps.
 
 **External check: Piccolo (iPhone app), played by hand via `web_play.py`.** 2026-10-06:
 `r256x12_mid1_CNN_test` with the network only (no search or solver, ~Edax-2 strength) won a game
