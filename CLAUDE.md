@@ -20,8 +20,8 @@ strength (see "Memorization finding" below). Measure progress from random openin
 **Current direction (2026-10-07):** strongest player = `r256x12_mid1` + MCTS (step 26:
 `eval_batch.py --mcts-sims 400 --solve-empties 18 --leaf-solve-empties 16`; `web_play.py --strong`
 uses 800 simulations): ~60% vs Edax-12, about even with Edax-14, ~58-67% vs Egaroucid level 10 and
-~40% vs level 12 from balanced/named openings. Next: the network learning from its own search
-(self-teacher round), the step toward an AlphaZero-style closed loop (`rl_discussion_2026-10-07.md`).
+~40% vs level 12 from balanced/named openings. Learning from its own MCTS (self-teacher rounds,
+steps 28-29) didn't improve the network at this scale; see step 29 for why.
 
 ## Key Architecture Components
 
@@ -501,6 +501,22 @@ Each step: what we saw -> what we concluded -> what we did. Details and numbers 
    the training data, small move toward the visit targets), like steps 21/24. Next: the same data,
    trained harder (less replay, higher lr, more epochs), to see whether the network can absorb its
    search and whether that helps.
+29. **Same self-play data, trained harder** (`REPLAY=400000 LR=5e-5 EPOCHS=4 ./self_teacher_round.sh
+   r256x12_st1b r256x12_mid1`, log `selfteach_r256x12_st1b.log`; self-play 50% of the data). The
+   visit targets have entropy 0.80 nats (most-visited move 72% of visits on average); KL from the
+   policy to them 0.417 (mid1) -> 0.384 (st1) -> 0.368 (st1b): only ~12% of the gap closed, while Edax
+   validation regret worsened 1.365 -> 1.402. Held-out regret unchanged (policy 1.370, MCTS 0.467).
+   Games, win % balanced | named, mid1 -> st1b: Edax-10 76.5 -> 71.5 | 70 -> 84, Edax-12 60 -> 61.5 |
+   63.3 -> 66.7, Edax-14 43.5 -> 43 | 50.7 -> 58.7, Egaroucid-10 57.5 -> 49 | 66.7 -> 49.3, Egaroucid-12
+   38.5 -> 24.5 | 40.7 -> 40.7; network-only head-to-head 54.0% / 40.3%. -> Learning from its own
+   MCTS 400 doesn't improve this network, and pushing harder starts to hurt (Egaroucid, named h2h).
+   Reading: per position, MCTS 400 with this network is not a better teacher than the Edax labels it
+   was trained on (on the held-out set, judged by Edax d14, it picks the best move 80% of the time and
+   loses 0.47 discs per move), and one iteration of ~14k games is tiny next to AlphaZero's (each
+   iteration trained on its last ~500k games). Its strength in games comes from searching at play
+   time, which training can't cheaply bake into one forward pass. A self-taught loop would need a
+   search that clearly beats the original teacher per position (e.g. MCTS 1600: 0.32 discs, ~4x the
+   cost) and many iterations at scale (an NVIDIA-class GPU). `r256x12_mid1` stays the best network.
 
 **External check: Piccolo (iPhone app), played by hand via `web_play.py`.** 2026-10-06:
 `r256x12_mid1_CNN_test` with the network only (no search or solver, ~Edax-2 strength) won a game
