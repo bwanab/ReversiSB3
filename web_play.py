@@ -14,6 +14,7 @@ import argparse
 from util.reversi import ReversiEnvCNN
 from util.util import get_model, mask_fn, BLACK, WHITE, get_action, get_device
 from util.search import SearchPlayer
+from util.levels import LEVELS, STRONGEST, describe, make_player
 
 
 app = Flask(__name__)
@@ -22,8 +23,12 @@ app = Flask(__name__)
 game_state = {
     'env': None,
     'model': None,
-    'player': None,        # SearchPlayer choosing the model's moves (network, search and/or solver)
+    'player': None,        # player choosing the model's moves (network, search and/or solver)
     'player_desc': '',
+    'level': None,         # strength level 1-10 (util/levels.py), or 'custom' (command-line search options)
+    'players': {},         # level -> player, created on first use
+    'custom_player': None, # player from explicit command-line options (level 'custom')
+    'custom_desc': '',
     'model_color': BLACK,  # Model plays as BLACK by default
     'game_over': False,
     'winner': None,
@@ -164,6 +169,8 @@ def get_model_move(env, board):
             info = {'method': f'solver ({empties} empty)', 'exact_score': int(score)}
         elif player.mcts is not None:
             info = {'method': f'MCTS {player.mcts.sims} simulations'}
+        elif getattr(player, 'temperature', None):
+            info = {'method': f'policy sample (temperature {player.temperature})'}
         elif player.depth > 0:
             depth = player.early_depth if player.early_depth and empties > player.early_above else player.depth
             info = {'method': f'search depth {depth}'}
@@ -171,6 +178,8 @@ def get_model_move(env, board):
             prob = next((float(probs[i]) for i in range(len(valid_actions)) if int(valid_actions[i]) == int(action)), 0.0)
             analysis.append({'notation': action_to_notation(int(action)), 'probability': prob, 'action': int(action)})
 
+    if game_state['level'] not in (None, 'custom'):
+        info['method'] = f"level {game_state['level']}: {info['method']}"
     return int(action), analysis, info
 
 
@@ -220,6 +229,23 @@ def save_game():
         json.dump(record, f, indent=1)
 
 
+def set_level(level):
+    """Switch the model's player to a strength level (1-10) or 'custom'; applies from its next move."""
+    if level == 'custom':
+        if game_state['custom_player'] is None and not game_state['custom_desc']:
+            raise ValueError('no custom player (start web_play.py with search options)')
+        game_state['player'], game_state['player_desc'] = game_state['custom_player'], game_state['custom_desc']
+    else:
+        level = int(level)
+        if level not in LEVELS:
+            raise ValueError(f'level must be 1-{STRONGEST}')
+        if level not in game_state['players']:
+            game_state['players'][level] = make_player(game_state['model'], level)
+        game_state['player'] = game_state['players'][level]
+        game_state['player_desc'] = f"level {level}: {describe(level)}"
+    game_state['level'] = level
+
+
 def action_to_notation(action):
     """Convert action number to chess-style notation (e.g., 19 -> D3)."""
     row = action // 8
@@ -238,6 +264,11 @@ def new_game():
     """Start a new game."""
     data = request.json
     model_color = data.get('model_color', 'black')
+    if data.get('level') is not None:
+        try:
+            set_level(data['level'])
+        except ValueError as e:
+            return jsonify({'error': str(e)}), 400
 
     # Create new environment
     env = ReversiEnvCNN()
@@ -268,6 +299,7 @@ def new_game():
         'piece_count': piece_count,
         'game_over': False,
         'model_color': model_color,
+        'level': game_state['level'],
         'can_undo': len(game_state['move_history']) > 0,
         'can_redo': len(game_state['redo_stack']) > 0
     }
@@ -658,6 +690,25 @@ def redo():
     return jsonify(response)
 
 
+@app.route('/api/levels', methods=['GET'])
+def get_levels():
+    """The strength levels and the current one."""
+    levels = [{'level': n, 'description': describe(n)} for n in sorted(LEVELS)]
+    if game_state['custom_desc']:
+        levels.append({'level': 'custom', 'description': game_state['custom_desc']})
+    return jsonify({'levels': levels, 'current': game_state['level']})
+
+
+@app.route('/api/set_level', methods=['POST'])
+def set_level_route():
+    """Change the model's strength; applies from its next move (also mid-game)."""
+    try:
+        set_level((request.json or {}).get('level'))
+    except (ValueError, TypeError) as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'level': game_state['level'], 'description': game_state['player_desc']})
+
+
 @app.route('/api/get_moves', methods=['GET'])
 def get_moves():
     """Get the move history."""
@@ -702,12 +753,15 @@ def main():
                         help='with search: score leaves with at most this many empty squares exactly')
     parser.add_argument('--mcts-sims', type=int, default=0,
                         help='choose moves by MCTS with this many simulations per move (instead of --search-depth)')
+    parser.add_argument('--level', type=int, default=STRONGEST, choices=sorted(LEVELS),
+                        help=f'starting strength level (util/levels.py; changeable in the page); default {STRONGEST}')
     parser.add_argument('--strong', action='store_true',
-                        help='the strongest configuration: --mcts-sims 800 --solve-empties 18 --leaf-solve-empties 16')
+                        help=f'the strongest level ({STRONGEST}: --mcts-sims 800 --solve-empties 18 '
+                             '--leaf-solve-empties 16)')
 
     args = parser.parse_args()
     if args.strong:
-        args.mcts_sims, args.solve_empties, args.leaf_solve_empties = 800, 18, 16
+        args.level = STRONGEST
     device = get_device() if args.device == 'auto' else args.device
 
     # Create environment (needed for loading model)
@@ -729,12 +783,13 @@ def main():
     game_state['model'] = model
     game_state['model_name'] = args.model
     searching = args.search_depth or args.mcts_sims
-    if searching or args.solve_empties:
-        game_state['player'] = SearchPlayer(model, depth=args.search_depth, top_k=args.search_top_k, prune_all=True,
-                                            solve_empties=args.solve_empties,
-                                            leaf_solve_empties=args.leaf_solve_empties if searching else 0,
-                                            early_depth=args.search_depth_early, early_above=args.early_above,
-                                            mcts_sims=args.mcts_sims)
+    custom = searching or args.solve_empties
+    if custom:
+        # explicit search options: a 'custom' player, selected at start (the levels stay available)
+        game_state['custom_player'] = SearchPlayer(
+            model, depth=args.search_depth, top_k=args.search_top_k, prune_all=True,
+            solve_empties=args.solve_empties, leaf_solve_empties=args.leaf_solve_empties if searching else 0,
+            early_depth=args.search_depth_early, early_above=args.early_above, mcts_sims=args.mcts_sims)
     parts = [f"MCTS {args.mcts_sims} simulations" if args.mcts_sims else
              f"search depth {args.search_depth}" if args.search_depth else "network top move"]
     if args.search_depth_early:
@@ -743,7 +798,11 @@ def main():
         parts.append(f"leaf solves <= {args.leaf_solve_empties}")
     if args.solve_empties:
         parts.append(f"solver <= {args.solve_empties} empties")
-    game_state['player_desc'] = ", ".join(parts)
+    if custom:
+        game_state['custom_desc'] = "custom: " + ", ".join(parts)
+        set_level('custom')
+    else:
+        set_level(args.level)
 
     print(f"\n{'='*60}")
     print(f"Reversi Web Interface")

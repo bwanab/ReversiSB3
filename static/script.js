@@ -4,20 +4,96 @@ let gameState = {
     validMoves: [],
     currentPlayer: null,
     gameOver: false,
-    modelColor: 'black'
+    modelColor: 'black',
+    lastData: null,
+    showHints: loadShowHints()
 };
+
+// "Show hints": the network's move probabilities and the solver's verdict; remembered per browser
+function loadShowHints() {
+    try {
+        return localStorage.getItem('showHints') !== 'false';
+    } catch (e) {
+        return true;
+    }
+}
 
 // Initialize board on page load
 document.addEventListener('DOMContentLoaded', function() {
     initializeBoard();
     setupEventListeners();
+    loadLevels();
 });
+
+async function loadLevels() {
+    try {
+        const response = await fetch('/api/levels');
+        const data = await response.json();
+        const select = document.getElementById('level');
+        select.innerHTML = '';
+        data.levels.forEach(level => {
+            const option = document.createElement('option');
+            option.value = level.level;
+            option.textContent = level.level === 'custom' ? 'Custom' : `${level.level}`;
+            option.title = level.description;
+            select.appendChild(option);
+        });
+        select.value = String(data.current);
+        updateLevelTitle();
+    } catch (error) {
+        showError('Could not load strength levels: ' + error.message);
+    }
+}
+
+function updateLevelTitle() {
+    const select = document.getElementById('level');
+    const option = select.options[select.selectedIndex];
+    if (option) {
+        select.title = option.title;
+    }
+}
+
+async function changeLevel() {
+    const value = document.getElementById('level').value;
+    updateLevelTitle();
+    try {
+        const response = await fetch('/api/set_level', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ level: value === 'custom' ? 'custom' : Number(value) })
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            showError(data.error || 'Failed to change strength');
+        }
+    } catch (error) {
+        showError('Network error: ' + error.message);
+    }
+}
+
+function toggleHints() {
+    gameState.showHints = document.getElementById('show-hints').checked;
+    try {
+        localStorage.setItem('showHints', String(gameState.showHints));
+    } catch (e) {
+        // not stored; the setting still applies to this page
+    }
+    if (gameState.lastData) {
+        updateGameState(gameState.lastData);
+    }
+}
 
 function setupEventListeners() {
     document.getElementById('new-game-btn').addEventListener('click', startNewGame);
     document.getElementById('undo-btn').addEventListener('click', undoMove);
     document.getElementById('redo-btn').addEventListener('click', redoMove);
     document.getElementById('copy-moves-btn').addEventListener('click', copyMoves);
+    document.getElementById('level').addEventListener('change', changeLevel);
+    const hints = document.getElementById('show-hints');
+    hints.checked = gameState.showHints;
+    hints.addEventListener('change', toggleHints);
 }
 
 function initializeBoard() {
@@ -42,6 +118,7 @@ function initializeBoard() {
 
 async function startNewGame() {
     const modelColor = document.getElementById('model-color').value;
+    const levelValue = document.getElementById('level').value;
     gameState.modelColor = modelColor;
 
     try {
@@ -50,7 +127,10 @@ async function startNewGame() {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ model_color: modelColor })
+            body: JSON.stringify({
+                model_color: modelColor,
+                level: levelValue === '' ? null : (levelValue === 'custom' ? 'custom' : Number(levelValue))
+            })
         });
 
         const data = await response.json();
@@ -102,6 +182,7 @@ async function handleCellClick(row, col) {
 }
 
 function updateGameState(data) {
+    gameState.lastData = data;
     gameState.board = data.board;
     gameState.validMoves = data.valid_moves || [];
     gameState.currentPlayer = data.current_player;
@@ -177,8 +258,8 @@ function highlightValidMoves() {
         if (cell) {
             cell.classList.add('valid-move');
 
-            // If probability is available, display it on the cell
-            if (move.probability !== undefined) {
+            // If probability is available (and hints are on), display it on the cell
+            if (gameState.showHints && move.probability !== undefined) {
                 const probText = document.createElement('div');
                 probText.className = 'move-probability';
                 probText.textContent = `${(move.probability * 100).toFixed(1)}%`;
@@ -225,7 +306,7 @@ function updateLastMoveDisplay(lastMove) {
     let displayText = `${player}: ${colLetter}${rowNumber}`;
 
     // If model move with analysis, show top move probabilities
-    if (lastMove.player === 'model' && lastMove.analysis && lastMove.analysis.length > 0) {
+    if (gameState.showHints && lastMove.player === 'model' && lastMove.analysis && lastMove.analysis.length > 0) {
         displayText += '\n';
         const moveProbabilities = lastMove.analysis.map(move => {
             const percentage = (move.probability * 100).toFixed(1);
@@ -238,7 +319,7 @@ function updateLastMoveDisplay(lastMove) {
     // How the model chose (network / search / solver), and the solver's exact verdict
     if (lastMove.player === 'model' && lastMove.method) {
         displayText += `\nChosen by: ${lastMove.method}`;
-        if (lastMove.exact_score !== undefined) {
+        if (gameState.showHints && lastMove.exact_score !== undefined) {
             const s = lastMove.exact_score;
             displayText += s > 0 ? ` (model wins by ${s} with perfect play)`
                          : s < 0 ? ` (model loses by ${-s} with perfect play)` : ' (draw with perfect play)';

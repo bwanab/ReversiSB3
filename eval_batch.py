@@ -51,6 +51,8 @@ def main():
                              "at every level (with --search-k-min/--search-k-max)")
     parser.add_argument("--search-k-min", type=int, default=1)
     parser.add_argument("--search-k-max", type=int, default=6)
+    parser.add_argument("--level", type=int, default=None,
+                        help="play at a strength level 1-10 (util/levels.py) instead of the search options")
     parser.add_argument("--mcts-sims", type=int, default=0,
                         help="choose moves by MCTS with this many simulations per move (util/mcts.py)")
     parser.add_argument("--mcts-c", type=float, default=1.0, help="MCTS exploration weight c_puct")
@@ -90,7 +92,12 @@ def main():
     opp_name = "edax" if args.opponent == "edax" else "egaroucid"
     for name in args.model:
         model = MaskablePPO.load(f"models/{name}", env=build_reversi("Random"), device=device)
-        player = SearchPlayer(model, depth=args.search_depth, top_k=args.search_top_k, prune_all=args.search_prune_all,
+        if args.level:
+            from util.levels import make_player, describe
+            player, mode = make_player(model, args.level, seed=args.seed), f"level {args.level} ({describe(args.level)})"
+        else:
+            player = None
+        player = player or SearchPlayer(model, depth=args.search_depth, top_k=args.search_top_k, prune_all=args.search_prune_all,
                               solve_empties=args.solve_empties,
                               leaf_solve_empties=args.leaf_solve_empties,
                               early_depth=args.search_depth_early, early_above=args.early_above,

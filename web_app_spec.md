@@ -11,14 +11,15 @@ from it: one game per server, POST requests with JSON bodies, and undo/redo.
 ## Running
 
 ```bash
-uv run python web_play.py -m r256x12_mid1_CNN_test --strong     # then open http://127.0.0.1:5000
+uv run python web_play.py -m r256x12_mid1_CNN_test               # then open http://127.0.0.1:5000
 ```
 
 | Option | Meaning |
 |---|---|
 | `-m/--model` (required) | model under `models/`, without `.zip` |
-| `--strong` | the strongest player: `--mcts-sims 800 --solve-empties 18 --leaf-solve-empties 16` |
-| `--mcts-sims N` | choose the model's moves by MCTS with N simulations |
+| `--level N` | starting strength level, 1 (weakest) to 10 (strongest, the default); see "Strength levels" |
+| `--strong` | level 10: `--mcts-sims 800 --solve-empties 18 --leaf-solve-empties 16` |
+| `--mcts-sims N` | choose the model's moves by MCTS with N simulations (a "custom" player, see below) |
 | `--search-depth N`, `--search-top-k K`, `--search-depth-early N`, `--early-above E` | negamax search instead of MCTS (pruned at every level) |
 | `--solve-empties N` | play exactly with the endgame solver at <= N empty squares (with or without search) |
 | `--leaf-solve-empties N` | with search/MCTS: score positions with <= N empties exactly |
@@ -26,7 +27,37 @@ uv run python web_play.py -m r256x12_mid1_CNN_test --strong     # then open http
 | `-p/--port`, `--host` | default 5000 on 127.0.0.1 |
 | `-w/--net-width` | legacy CNN option, ignored by saved models |
 
-With none of the search options the model plays the policy network's top move.
+The search options (`--mcts-sims`, `--search-depth`, `--solve-empties`, ...) define a **custom** player,
+selected at start and listed as level "custom"; without them the model starts at `--level`.
+
+## Strength levels
+
+Defined in `util/levels.py` (also `eval_batch.py --level N`); level 10 is the strongest player.
+
+| Level | Player |
+|---|---|
+| 1 | policy network, sampled at temperature 1.5 |
+| 2 | policy network, sampled at temperature 0.7 |
+| 3 | policy network, top move |
+| 4 | MCTS 16 simulations |
+| 5 | MCTS 32, solver <= 10 empties |
+| 6 | MCTS 64, solver <= 12 |
+| 7 | MCTS 128, solver <= 14, leaf solves <= 12 |
+| 8 | MCTS 200, solver <= 16, leaf solves <= 14 |
+| 9 | MCTS 400, solver <= 18, leaf solves <= 16 |
+| 10 | MCTS 800, solver <= 18, leaf solves <= 16 |
+
+The level can change at any time, including mid-game; it applies from the model's next move. Each
+model move's `method` starts with its level (e.g. `level 7: MCTS 128 simulations`).
+
+## Page options
+
+- **Model plays as**: black or white, for the next new game.
+- **Strength**: the level (1-10, or Custom); changes apply immediately (`/api/set_level`), and the
+  selection is also sent with "New Game".
+- **Show hints**: shows or hides the model's move probabilities on your candidate moves, its list of
+  top policy moves, and the solver's verdict ("model wins by N with perfect play"). Display only: the
+  server always sends them. Remembered per browser (`localStorage`).
 
 ## Model
 
@@ -70,8 +101,9 @@ probability for that move, i.e. the network's prediction of the person's move, n
 - `analysis`: the policy network's top 5 moves with their probabilities (plus the move played, if it
   wasn't among them). It shows what the network alone would play; the move actually played comes
   from the configured player and is marked in the UI.
-- `method`: how the move was chosen: `network`, `MCTS N simulations`, `search depth N`, or
-  `solver (N empty)`.
+- `method`: how the move was chosen: `network`, `policy sample (temperature T)`,
+  `MCTS N simulations`, `search depth N`, or `solver (N empty)`, prefixed with the level
+  (`level 9: ...`) unless the custom player is selected.
 - `exact_score`: only with the solver: the final disc difference for the model with perfect play.
 
 After a person's move, the server sets `last_move` to `{"action": ..., "player": "human"}` internally,
@@ -110,10 +142,12 @@ The game page.
 ### `POST /api/new_game`
 Start a new game (discarding the current one; its record file stays).
 
-Request: `{"model_color": "black" | "white"}` (default `"black"`).
+Request: `{"model_color": "black" | "white", "level": 1-10 | "custom"}` (`model_color` default
+`"black"`; `level` optional, default: keep the current level). An invalid level gives HTTP 400.
 
-Response: the standard state for the starting position, plus `"model_color"`. If the model plays
-black, the response is instead the state after the model's first move (with `last_move`).
+Response: the standard state for the starting position, plus `"model_color"` and `"level"`. If the
+model plays black, the response is instead the state after the model's first move (with
+`last_move`, without `model_color`/`level`).
 
 ### `POST /api/make_move`
 Play the person's move, then the model's reply.
@@ -148,6 +182,22 @@ Replay the most recently undone move. A new move clears the redo stack.
 Response: standard state; if it is then the model's turn, the model moves (as in `make_move`) and the
 response is the state after its move.
 
+### `GET /api/levels`
+The strength levels and the current one:
+
+```json
+{"levels": [{"level": 1, "description": "policy network, sampled (temperature 1.5)"}, ...,
+            {"level": "custom", "description": "custom: MCTS 400 simulations, ..."}],
+ "current": 10}
+```
+
+The `custom` entry appears only when the server was started with search options.
+
+### `POST /api/set_level`
+Request: `{"level": 1-10 | "custom"}`. Applies from the model's next move. Response:
+`{"level": 7, "description": "level 7: MCTS 128 simulations, leaf solves <= 12, solver <= 14 empties"}`;
+HTTP 400 for an invalid level.
+
 ### `GET /api/get_moves`
 The move history of the current game:
 
@@ -165,12 +215,12 @@ file always matches the game as it stands (lines abandoned by undo are not kept)
 ```json
 {
   "model": "r256x12_mid1_CNN_test",
-  "player": "MCTS 800 simulations, leaf solves <= 16, solver <= 18 empties",
+  "player": "level 10: MCTS 800 simulations, leaf solves <= 16, solver <= 18 empties",
   "model_color": "black",
   "moves": [
     {"square": "F5", "action": 37, "color": "black", "by": "model",
      "board_before": [0, 0, ... 64 values, 1 = black, -1 = white ...],
-     "method": "MCTS 800 simulations"},
+     "method": "level 10: MCTS 800 simulations"},
     {"square": "F6", "action": 45, "color": "white", "by": "human", "board_before": [...]}
   ],
   "final_board": [...64 values...],
@@ -178,6 +228,9 @@ file always matches the game as it stands (lines abandoned by undo are not kept)
   "finished": true
 }
 ```
+
+`player` is the level selected when the file was last written; if the level changed mid-game, each
+model move's `method` shows the level that chose it.
 
 `analyze_games.py games/*.json` grades the person's (or opponent app's) moves with Egaroucid next to
 the policy probabilities the model gave them (see CLAUDE.md, "Recording and grading games").
