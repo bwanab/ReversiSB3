@@ -281,7 +281,8 @@ class SearchPlayer:
 
     def __init__(self, model, depth=2, top_k=None, prune_all=False, solve_empties=0, leaf_solve_empties=0,
                  early_depth=0, early_above=30, top_p=None, k_min=1, k_max=6,
-                 mcts_sims=0, mcts_c=1.0, mcts_parallel=4, mcts_fpu=0.3):
+                 mcts_sims=0, mcts_c=1.0, mcts_parallel=4, mcts_fpu=0.3, mcts_max_sims=None,
+                 mcts_early_stop=True):
         self.model, self.depth, self.top_k, self.prune_all = model, depth, top_k, prune_all
         self.top_p, self.k_min, self.k_max = top_p, k_min, k_max
         self.solve_empties = solve_empties
@@ -293,7 +294,8 @@ class SearchPlayer:
             from util.mcts import MCTS
             self.mcts = MCTS(lambda bs: policy_value(model, bs), sims=mcts_sims, c_puct=mcts_c,
                              parallel=mcts_parallel, fpu_reduction=mcts_fpu,
-                             leaf_solve_empties=leaf_solve_empties)
+                             leaf_solve_empties=leaf_solve_empties, max_sims=mcts_max_sims,
+                             early_stop=mcts_early_stop)
 
     def choose_many(self, boards):
         """Best move for each of several boards, with one policy call (if top_k or depth 0)

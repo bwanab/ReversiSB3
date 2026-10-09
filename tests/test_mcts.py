@@ -131,12 +131,20 @@ class TestMCTS(unittest.TestCase):
 
     def test_visits_and_legality(self):
         boards = [b for b in sample_positions(n_games=2, seed=12) if len(legal_moves(b)) > 1][::4]
-        for b, (best, visits) in zip(boards, MCTS(hashed_net, sims=120, parallel=8).run(boards)):
+        for b, (best, visits) in zip(boards, MCTS(hashed_net, sims=120, parallel=8, early_stop=False).run(boards)):
             self.assertEqual(set(visits), set(int(m) for m in legal_moves(b)))
             self.assertIn(best, visits)
             self.assertLessEqual(sum(visits.values()), 120)
             self.assertGreater(sum(visits.values()), 60)        # few collisions
             self.assertEqual(visits[best], max(visits.values()))
+
+    def test_early_stop_same_move_fewer_sims(self):
+        """Early stop only ends searches whose choice can no longer change: same moves, fewer simulations."""
+        boards = [b for b in sample_positions(n_games=4, seed=14) if len(legal_moves(b)) > 1]
+        full = MCTS(hashed_net, sims=200, parallel=1, early_stop=False)
+        early = MCTS(hashed_net, sims=200, parallel=1, early_stop=True)
+        self.assertEqual([m for m, _ in full.run(boards)], [m for m, _ in early.run(boards)])
+        self.assertLess(sum(early.last_sims), sum(full.last_sims))
 
     def test_single_move_needs_no_search(self):
         for b in sample_positions(n_games=6, seed=13):

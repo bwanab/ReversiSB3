@@ -56,6 +56,10 @@ def main():
     parser.add_argument("--mcts-c", type=float, default=1.0, help="MCTS exploration weight c_puct")
     parser.add_argument("--mcts-parallel", type=int, default=4, help="MCTS leaves per game per network call")
     parser.add_argument("--mcts-fpu", type=float, default=0.3, help="MCTS first-play-urgency reduction")
+    parser.add_argument("--mcts-max-sims", type=int, default=None,
+                        help="extend unsettled MCTS searches up to this many simulations (default: off)")
+    parser.add_argument("--no-mcts-early-stop", action="store_true",
+                        help="always run all simulations (early stop never changes the move, only saves time)")
     parser.add_argument("--search-prune-all", action="store_true",
                         help="apply --search-top-k at every node of the search tree, not only the root")
     parser.add_argument("--device", default="auto", help="auto = cuda, else mps, else cpu")
@@ -68,6 +72,8 @@ def main():
     positions = np.load(args.start_positions) if args.start_positions else None
     starts = sb_play_starts(args.episodes, args.random_opening, args.seed, positions)
     mode = (f"MCTS {args.mcts_sims} sims c {args.mcts_c} fpu {args.mcts_fpu} par {args.mcts_parallel}"
+            + ("" if args.no_mcts_early_stop else " early-stop")
+            + (f" max {args.mcts_max_sims}" if args.mcts_max_sims else "")
             + (f" + solver <= {args.solve_empties} empties" if args.solve_empties else "")
             + (f" + leaf solves <= {args.leaf_solve_empties}" if args.leaf_solve_empties else "")) \
         if args.mcts_sims else "top move" if args.search_depth == 0 else \
@@ -90,7 +96,8 @@ def main():
                               early_depth=args.search_depth_early, early_above=args.early_above,
                               top_p=args.search_top_p, k_min=args.search_k_min, k_max=args.search_k_max,
                               mcts_sims=args.mcts_sims, mcts_c=args.mcts_c, mcts_parallel=args.mcts_parallel,
-                              mcts_fpu=args.mcts_fpu)
+                              mcts_fpu=args.mcts_fpu, mcts_max_sims=args.mcts_max_sims,
+                              mcts_early_stop=not args.no_mcts_early_stop)
         for depth in (int(d) for d in args.depths.split(",")):
             t = time.time()
             diffs = play_vs_edax(player.choose_many, starts, depth, client=client)

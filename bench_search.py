@@ -11,7 +11,8 @@ Usage:
   python bench_search.py -m r256x12_mid1_CNN_test --labels bench/heldout_d14.npz \\
       --config "top" --config "negamax:5:6" --config "mcts:400:1.0"
 Configs: "top" (policy top move); "negamax:DEPTH[:EARLY_DEPTH]" (top 3 at every level, leaf solves
-<= 16, early depth above 30 empties); "mcts:SIMS:C[:FPU[:PARALLEL]]" (leaf solves <= 16).
+<= 16, early depth above 30 empties); "mcts:SIMS:C[:FPU[:PARALLEL]]" (leaf solves <= 16);
+"amcts:SIMS:MAX_SIMS[:EARLY_STOP]" (adaptive budget, util/mcts.py; early stop on by default).
 """
 
 import argparse
@@ -32,6 +33,9 @@ def make_player(model, spec):
     if kind == "negamax":
         return SearchPlayer(model, depth=int(a[0]), top_k=3, prune_all=True, leaf_solve_empties=16,
                             early_depth=int(a[1]) if len(a) > 1 else 0, early_above=30)
+    if kind == "amcts":                     # amcts:SIMS:MAX_SIMS[:EARLY_STOP 0/1]
+        return SearchPlayer(model, mcts_sims=int(a[0]), mcts_max_sims=int(a[1]),
+                            mcts_early_stop=bool(int(a[2])) if len(a) > 2 else True, leaf_solve_empties=16)
     if kind == "mcts":
         return SearchPlayer(model, mcts_sims=int(a[0]), mcts_c=float(a[1]),
                             mcts_fpu=float(a[2]) if len(a) > 2 else 0.3,
@@ -62,7 +66,8 @@ def main():
         moves = np.array(player.choose_many(list(boards)))
         secs = time.time() - t
         regret = best - scores[np.arange(len(boards)), moves]
-        evals = f", {player.mcts.evaluations / len(boards):.0f} evals/move" if player.mcts else ""
+        evals = (f", {player.mcts.evaluations / len(boards):.0f} evals/move, "
+                 f"{np.mean(player.mcts.last_sims):.0f} sims/move" if player.mcts else "")
         print(f"{spec:22s} regret {regret.mean():.3f} discs, best move {100 * (regret == 0).mean():.1f}%, "
               f"blunders>=4 {100 * (regret >= 4).mean():.1f}%, {1000 * secs / len(boards):.0f} ms/move{evals}",
               flush=True)

@@ -54,10 +54,19 @@ class MCTS:
     sims: simulations per move; c_puct: exploration weight; parallel: leaves per root per round
     (more = bigger network batches, slightly less exact search); fpu_reduction: unvisited moves are
     valued at the node's value minus this; leaf_solve_empties: solve positions with at most this many
-    empty squares exactly (0 = off)."""
+    empty squares exactly (0 = off).
+
+    Adaptive budget (step 30): early_stop (default) ends a root's search once the most visited move
+    leads the runner-up by more than the simulations left, so the choice can no longer change: the same
+    moves as the full budget, ~30% fewer simulations on average. max_sims > sims (measured: rarely
+    triggers, no gain)
+    extends a root past `sims`, in steps of sims / 4 up to max_sims, while it is unsettled: the
+    runner-up has more than extend_ratio of the leader's visits, or the most visited move isn't the
+    best valued one (among moves with at least 10% of the leader's visits)."""
 
     def __init__(self, net, sims=400, c_puct=1.0, parallel=4, fpu_reduction=0.3, leaf_solve_empties=0,
-                 scale=LEAF_SCORE_SCALE):
+                 scale=LEAF_SCORE_SCALE, max_sims=None, early_stop=True, extend_ratio=0.6):
+        self.max_sims, self.early_stop, self.extend_ratio = max(max_sims or sims, sims), early_stop, extend_ratio
         self.net, self.sims, self.c_puct, self.parallel = net, sims, c_puct, parallel
         self.fpu_reduction, self.leaf_solve_empties, self.scale = fpu_reduction, leaf_solve_empties, scale
         self.evaluations = 0                     # network positions evaluated (cost measure)
@@ -69,11 +78,15 @@ class MCTS:
         for b in boards:
             assert len(legal_moves(b)) > 0, "MCTS called on a position with no legal move"
         roots = self._make_nodes(boards, solve=False)
-        done = [self.sims if len(r.moves) == 1 else 0 for r in roots]
-        while any(d < self.sims for d in done):
+        done = [0] * len(roots)
+        limit = [self.sims] * len(roots)
+        active = [len(r.moves) > 1 for r in roots]
+        while any(active):
             pending, requests = set(), []                    # requests: (path, board)
             for r, root in enumerate(roots):
-                for _ in range(min(self.parallel, self.sims - done[r])):
+                if not active[r]:
+                    continue
+                for _ in range(min(self.parallel, limit[r] - done[r])):
                     done[r] += 1
                     req = self._select(root, pending)
                     if req is not None:
@@ -82,13 +95,29 @@ class MCTS:
                 parent, i = path[-1]
                 parent.children[i] = node
                 self._backup(path, node.value)
+            for r, root in enumerate(roots):
+                if active[r]:
+                    active[r] = self._continue(root, done[r], limit, r)
         self.last_roots = roots                              # for inspection
+        self.last_sims = done
         results = []
         for root in roots:
             q = np.where(root.n > 0, root.w / np.maximum(root.n, 1), -np.inf)
             best = max(range(len(root.moves)), key=lambda i: (root.n[i], q[i], root.prior[i]))
             results.append((int(root.moves[best]), {int(m): int(n) for m, n in zip(root.moves, root.n)}))
         return results
+
+    def _continue(self, root, done, limit, r):
+        """Whether root r keeps searching (may raise limit[r] to extend it)."""
+        n = np.sort(root.n)[::-1]
+        if done < limit[r]:
+            return not (self.early_stop and n[0] - n[1] > limit[r] - done)
+        if limit[r] < self.max_sims:
+            q = np.where(root.n >= 0.1 * n[0], root.w / np.maximum(root.n, 1), -np.inf)
+            if n[1] > self.extend_ratio * n[0] or np.argmax(q) != np.argmax(root.n):
+                limit[r] = min(self.max_sims, limit[r] + max(1, self.sims // 4))
+                return True
+        return False
 
     def _pick(self, node):
         n = node.n
