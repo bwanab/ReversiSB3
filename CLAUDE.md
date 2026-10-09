@@ -556,7 +556,7 @@ second benchmark.
 | 2026-10-08 | `r256x12_mid1` | `--strong` (MCTS 800, step 26) | 8 | several games from both colors, all won decisively |
 
 Other apps (2026-10-09, by hand): of three Android Othello apps tried, one crashed, one played illegally
-(didn't flip all captured discs), and one with 100k+ downloads lost at its maximum level to
+(didn't flip all captured discs), and "Reversi - Othello" by Livio (100k+ downloads) lost at its maximum level to
 `r256x12_mid1` at web_play level 5 (~Edax depth 5, step 31).
 
 **Strength levels and hints** (2026-10-09): `web_play.py` offers levels 1-10 (`util/levels.py`; `--level N`,
