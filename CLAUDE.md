@@ -19,8 +19,8 @@ strength (see "Memorization finding" below). Measure progress from random openin
 
 **Current direction (2026-10-07):** strongest player = `r256x12_mid1` + MCTS (step 26:
 `eval_batch.py --mcts-sims 400 --solve-empties 18 --leaf-solve-empties 16`; `web_play.py --strong`
-uses 800 simulations): ~60% vs Edax-12, about even with Edax-14, ~58-67% vs Egaroucid level 10 and
-~40% vs level 12 from balanced/named openings. Learning from its own MCTS (self-teacher rounds,
+uses 800 simulations, with early stop since step 30): MCTS 800 wins 72% vs Edax-12, 55.5% vs
+Edax-14, 68.5% vs Egaroucid level 10 and 50.5% vs level 12 (balanced openings). Learning from its own MCTS (self-teacher rounds,
 steps 28-29) didn't improve the network at this scale; see step 29 for why.
 
 ## Key Architecture Components
@@ -517,6 +517,19 @@ Each step: what we saw -> what we concluded -> what we did. Details and numbers 
    time, which training can't cheaply bake into one forward pass. A self-taught loop would need a
    search that clearly beats the original teacher per position (e.g. MCTS 1600: 0.32 discs, ~4x the
    cost) and many iterations at scale (an NVIDIA-class GPU). `r256x12_mid1` stays the best network.
+30. **Adaptive MCTS budget** (`util/mcts.py`; tree reuse between moves was considered and set aside:
+   it only saves simulations, ~1.25-1.3x, since opponents often play replies the search didn't
+   favor). Early stop: a root stops once its most visited move leads the runner-up by more than the
+   simulations left, so the choice can't change: the same moves as the full budget (tested) with ~30%
+   fewer simulations (held-out set: fixed 400 = 0.422 discs at 399 simulations; early stop 0.422 at
+   279). Extending unsettled searches (`max_sims`) almost never triggered (visits concentrate) and
+   gained nothing. Early stop is now the default; at equal time it buys a larger base budget
+   (held-out: base 600 0.361 at 411 simulations, base 800 0.330 at 539). Games (`r256x12_mid1`,
+   balanced, win % vs Edax-10/12/14, Egaroucid-10/12, s per run): fixed 400 76.5 / 60 / 43.5, 57.5 /
+   38.5 (~330-390 s); **base 600 89.5 / 70.5 / 49.5, 63.5 / 44 (335-392 s)**; **base 800 86.5 / 72 /
+   55.5, 68.5 / 50.5 (452-489 s)**. -> +5-13 points at equal time; base 800 at ~1.35x beats Edax-14
+   and is even with Egaroucid level 12. Level 9 (MCTS 400) and level 10 (MCTS 800) of
+   `util/levels.py` get this automatically.
 
 **External check: Piccolo (iPhone app), played by hand via `web_play.py`.** 2026-10-06:
 `r256x12_mid1_CNN_test` with the network only (no search or solver, ~Edax-2 strength) won a game
