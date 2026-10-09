@@ -10,6 +10,7 @@ import os
 import random
 import sys
 import tempfile
+import time
 import unittest
 
 import numpy as np
@@ -17,6 +18,7 @@ import numpy as np
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 import web_play as wp
+from web_store import MemoryStore, RedisStore
 from util.reversi import ReversiEnvCNN
 from util.search import legal_moves, play_move
 
@@ -33,14 +35,19 @@ class TestWebPlay(unittest.TestCase):
                                         channels=8, blocks=1)
         wp.Config.model_name = "test"
 
+    def make_store(self):
+        return MemoryStore(max_games=200)
+
     def setUp(self):
-        wp.GAMES.clear()
-        wp.RATE.clear()
+        wp.STORE = self.make_store()
         wp.PLAYERS.clear()
         wp.Config.default_level, wp.Config.record = 3, False
-        wp.Config.max_games, wp.Config.idle_timeout, wp.Config.rate_per_minute = 200, 7200, 100000
+        wp.Config.idle_timeout, wp.Config.rate_per_minute = 7200, 100000
         wp.Config.new_games_per_minute = 100000
         self.c = wp.app.test_client()
+
+    def stored(self, gid):
+        return wp.Game.from_dict(wp.STORE.load(gid))
 
     def new(self, **kw):
         r = self.c.post('/api/new_game', json={'model_color': 'white', **kw})
@@ -89,7 +96,7 @@ class TestWebPlay(unittest.TestCase):
         self.assertEqual(g['winner'], 'black' if diff > 0 else 'white' if diff < 0 else 'draw')
         self.assertEqual(self.move(gid, 0).status_code, 400)                          # game over
         # the history replays by the rules (passes allowed)
-        game = wp.GAMES[gid]
+        game = self.stored(gid)
         for prev, nxt in zip(game.history, game.history[1:] + [{'board_before': game.board}]):
             sign = 1 if prev['color'] == 'black' else -1
             self.assertIn(prev['action'], set(int(m) for m in legal_moves(prev['board_before'] * sign)))
@@ -121,14 +128,20 @@ class TestWebPlay(unittest.TestCase):
         self.assertTrue(m['last_move']['method'].startswith('level 4:'))
 
     def test_limits(self):
-        wp.Config.max_games = 2
-        self.new(), self.new()
-        self.assertEqual(self.c.post('/api/new_game', json={}).status_code, 503)
-        wp.Config.idle_timeout = -1                                # every game is idle: dropped
+        if isinstance(wp.STORE, MemoryStore):
+            wp.STORE.max_games = 2
+            self.new(), self.new()
+            self.assertEqual(self.c.post('/api/new_game', json={}).status_code, 503)
+            wp.STORE = self.make_store()
+        wp.Config.idle_timeout = 1                                 # games expire after 1 s idle
+        old = self.new()
+        time.sleep(1.2)
+        self.assertEqual(self.c.get('/api/game_state', query_string={'game_id': old['game_id']}).status_code, 404)
+        wp.Config.idle_timeout = 7200
         g = self.new()
-        self.assertEqual(len(wp.GAMES), 1)
         wp.Config.rate_per_minute = 3
-        wp.RATE.clear()
+        wp.STORE = self.make_store()
+        wp.STORE.save(g['game_id'], self.stored_from(g), 7200)
         codes = [self.c.get('/api/game_state', query_string={'game_id': g['game_id']}).status_code for _ in range(5)]
         self.assertEqual(codes, [200, 200, 200, 429, 429])
         wp.Config.rate_per_minute = 100000
@@ -150,6 +163,32 @@ class TestWebPlay(unittest.TestCase):
         self.assertEqual(r.get_json(), {'error': 'internal error'})               # no exception text
         self.assertEqual(self.c.get('/api/nothing').status_code, 404)
 
+    def stored_from(self, state):
+        return wp.Game(wp.WHITE if state['model_color'] == 'white' else wp.BLACK, state['level'],
+                       state['game_id']).to_dict()
+
+    def test_round_trip_and_busy(self):
+        random.seed(4)
+        g = self.new()
+        for _ in range(6):
+            g = self.move(g['game_id'], random.choice(g['valid_moves'])['action']).get_json()
+        game = self.stored(g['game_id'])
+        again = wp.Game.from_dict(json.loads(json.dumps(game.to_dict())))
+        np.testing.assert_array_equal(game.board, again.board)
+        self.assertEqual(game.state(), again.state())
+        bad = game.to_dict()
+        bad['moves'][2][0] = bad['moves'][1][0]                     # a move that can't be replayed
+        with self.assertRaises(ValueError):
+            wp.Game.from_dict(bad)
+        with wp.STORE.locked(g['game_id']):                         # another request holds the game
+            original = wp.STORE.locked
+            wp.STORE.locked = lambda gid, wait=60: original(gid, wait=0.2)
+            try:
+                r = self.c.post('/api/undo', json={'game_id': g['game_id']})
+            finally:
+                wp.STORE.locked = original
+        self.assertEqual(r.status_code, 409)
+
     def test_game_record(self):
         with tempfile.TemporaryDirectory() as d:
             wp.Config.record, games_dir, wp.GAMES_DIR = True, wp.GAMES_DIR, d
@@ -164,6 +203,14 @@ class TestWebPlay(unittest.TestCase):
                 self.assertEqual(rec['level'], 3)
             finally:
                 wp.GAMES_DIR = games_dir
+
+
+class TestWebPlayRedis(TestWebPlay):
+    """The same API tests with games, locks and rate limits in Redis (fakeredis, no server needed)."""
+
+    def make_store(self):
+        import fakeredis
+        return RedisStore(client=fakeredis.FakeRedis())
 
 
 if __name__ == "__main__":

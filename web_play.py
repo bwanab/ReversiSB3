@@ -9,10 +9,13 @@ Hardened for running in public (2026-10-09 audit): games by id with per-game loc
 time, request size and request rate; model moves computed one at a time (shared engine lock);
 security headers; the debugger only on localhost; game records named by server-made ids only.
 For a public site run it behind a reverse proxy with TLS (nginx, Caddy) and --trust-proxy.
+
+Games live in a store (web_store.py): in memory by default, or in Redis (--redis-url) so several
+instances can share them (serverless hosting).
 """
 
 import argparse
-import collections
+import contextlib
 import json
 import logging
 import os
@@ -26,6 +29,7 @@ from flask import Flask, jsonify, render_template, request
 
 from util.levels import LEVELS, STRONGEST, describe, make_player
 from util.search import SearchPlayer, legal_moves, play_move, policy_logits
+from web_store import MemoryStore, RedisStore, StoreBusy
 
 log = logging.getLogger("web_play")
 app = Flask(__name__)
@@ -51,10 +55,9 @@ class Config:
     new_games_per_minute = 10
 
 
-ENGINE_LOCK = threading.Lock()    # model moves and probabilities are computed one at a time
+ENGINE_LOCK = threading.Lock()    # model moves and probabilities are computed one at a time (per instance)
 PLAYERS = {}                      # level -> player, created on first use (under ENGINE_LOCK)
-GAMES = {}                        # game id -> Game
-GAMES_LOCK = threading.Lock()
+STORE = MemoryStore()             # games and rate-limit counters (web_store.py); main() may switch to Redis
 
 
 class ApiError(Exception):
@@ -97,9 +100,8 @@ def parse_level(value):
 class Game:
     """One game: the board as 64 values (1 = black, -1 = white, row-major from the top left)."""
 
-    def __init__(self, model_color, level):
-        self.id = secrets.token_urlsafe(18)
-        self.lock = threading.Lock()
+    def __init__(self, model_color, level, game_id=None):
+        self.id = game_id or secrets.token_urlsafe(18)
         self.model_color, self.level = model_color, level
         self.board = np.zeros(64, dtype=np.int8)
         self.board[[27, 36]], self.board[[28, 35]] = WHITE, BLACK
@@ -110,7 +112,24 @@ class Game:
         self.last_move = None         # info on the model's latest move
         self.model_passed = False
         self.started = time.strftime("%Y%m%d-%H%M%S")
-        self.touched = time.time()
+
+    def to_dict(self):
+        """What the store keeps: the moves, not the boards (from_dict replays them by the rules)."""
+        return {"id": self.id, "model_color": self.model_color, "level": self.level, "started": self.started,
+                "moves": [[m["action"], 1 if m["color"] == "black" else -1, m["by"], m.get("method")]
+                          for m in self.history],
+                "redo": self.redo, "last_move": self.last_move, "model_passed": self.model_passed}
+
+    @classmethod
+    def from_dict(cls, d):
+        game = cls(d["model_color"], d["level"], d["id"])
+        for action, color, by, method in d["moves"]:
+            if game.over or color != game.to_move or action not in set(int(m) for m in game.legal()):
+                raise ValueError(f"stored game {d['id']} doesn't replay")
+            game.apply(action, by, method)
+        game.started, game.redo = d["started"], list(d["redo"])
+        game.last_move, game.model_passed = d["last_move"], d["model_passed"]
+        return game
 
     @property
     def human_color(self):
@@ -266,22 +285,9 @@ def model_move(game):
 
 # ---- request handling ----
 
-RATE = collections.defaultdict(collections.deque)    # (client, kind) -> request times
-RATE_LOCK = threading.Lock()
-
-
 def rate_limit(kind, per_minute):
-    now, key = time.time(), (request.remote_addr or "?", kind)
-    with RATE_LOCK:
-        q = RATE[key]
-        while q and q[0] < now - 60:
-            q.popleft()
-        if len(q) >= per_minute:
-            raise ApiError("too many requests; slow down", 429)
-        q.append(now)
-        if len(RATE) > 10000:                         # forget idle clients
-            for k in [k for k, v in RATE.items() if not v or v[-1] < now - 60]:
-                del RATE[k]
+    if not STORE.hit(f"{kind}:{request.remote_addr or '?'}", per_minute):
+        raise ApiError("too many requests; slow down", 429)
 
 
 def body():
@@ -291,22 +297,30 @@ def body():
     return data
 
 
-def find_game(game_id):
-    if not isinstance(game_id, str) or not GAME_ID_RE.match(game_id):
+def game_id_of(value):
+    if not isinstance(value, str) or not GAME_ID_RE.match(value):
         raise ApiError("missing or malformed game_id")
-    with GAMES_LOCK:
-        game = GAMES.get(game_id)
-    if game is None:
-        raise ApiError("unknown or expired game; start a new game", 404)
-    game.touched = time.time()
-    return game
+    return value
 
 
-def drop_idle_games():
-    now = time.time()
-    with GAMES_LOCK:
-        for gid in [g for g, game in GAMES.items() if now - game.touched > Config.idle_timeout]:
-            del GAMES[gid]
+@contextlib.contextmanager
+def open_game(game_id, write=True):
+    """The game, locked for this request (across instances with Redis); saved back afterwards (which
+    also restarts its idle timeout)."""
+    try:
+        with STORE.locked(game_id):
+            data = STORE.load(game_id)
+            if data is None:
+                raise ApiError("unknown or expired game; start a new game", 404)
+            game = Game.from_dict(data)
+            yield game
+            if write:
+                STORE.save(game_id, game.to_dict(), Config.idle_timeout)
+                game.save()
+            else:
+                STORE.save(game_id, data, Config.idle_timeout)
+    except StoreBusy:
+        raise ApiError("the game is busy with another request; try again", 409)
 
 
 @app.before_request
@@ -366,59 +380,47 @@ def new_game():
     if color not in ("black", "white"):
         raise ApiError("model_color must be 'black' or 'white'")
     level = Config.default_level if data.get("level") is None else parse_level(data["level"])
-    drop_idle_games()
     game = Game(BLACK if color == "black" else WHITE, level)
-    with GAMES_LOCK:
-        if len(GAMES) >= Config.max_games:
-            raise ApiError("the server is busy; try again later", 503)
-        GAMES[game.id] = game
-    with game.lock:
+    if not STORE.create(game.id, game.to_dict(), Config.idle_timeout):
+        raise ApiError("the server is busy; try again later", 503)
+    with open_game(game.id) as game:
         game.model_moves()
-        game.save()
         return jsonify(game.state())
 
 
 @app.route("/api/make_move", methods=["POST"])
 def make_move():
     data = body()
-    game = find_game(data.get("game_id"))
-    with game.lock:
+    with open_game(game_id_of(data.get("game_id"))) as game:
         game.human_move(data.get("action"))
-        game.save()
         return jsonify(game.state())
 
 
 @app.route("/api/undo", methods=["POST"])
 def undo():
-    game = find_game(body().get("game_id"))
-    with game.lock:
+    with open_game(game_id_of(body().get("game_id"))) as game:
         game.undo()
-        game.save()
         return jsonify(game.state())
 
 
 @app.route("/api/redo", methods=["POST"])
 def redo():
-    game = find_game(body().get("game_id"))
-    with game.lock:
+    with open_game(game_id_of(body().get("game_id"))) as game:
         game.redo_move()
-        game.save()
         return jsonify(game.state())
 
 
 @app.route("/api/game_state", methods=["GET"])
 def game_state():
-    game = find_game(request.args.get("game_id"))
-    with game.lock:
+    with open_game(game_id_of(request.args.get("game_id")), write=False) as game:
         return jsonify(game.state())
 
 
 @app.route("/api/set_level", methods=["POST"])
 def set_level():
     data = body()
-    game = find_game(data.get("game_id"))
-    level = parse_level(data.get("level"))
-    with game.lock:
+    gid, level = game_id_of(data.get("game_id")), parse_level(data.get("level"))
+    with open_game(gid) as game:
         game.level = level
         return jsonify({"game_id": game.id, "level": level, "description": level_desc(level)})
 
@@ -433,8 +435,7 @@ def levels():
 
 @app.route("/api/get_moves", methods=["GET"])
 def get_moves():
-    game = find_game(request.args.get("game_id"))
-    with game.lock:
+    with open_game(game_id_of(request.args.get("game_id")), write=False) as game:
         moves = [{"number": i + 1, "player": m["color"], "by": m["by"], "action": m["action"],
                   "notation": notation(m["action"])} for i, m in enumerate(game.history)]
     return jsonify({"moves": moves, "total": len(moves)})
@@ -463,7 +464,11 @@ def main():
                         help="custom player: with search/MCTS, score positions with <= this many empties exactly")
     parser.add_argument("--mcts-sims", type=int, default=0, help="custom player: MCTS with this many simulations")
     parser.add_argument("--no-record", action="store_true", help="don't save games to games/")
-    parser.add_argument("--max-games", type=int, default=Config.max_games, help="concurrent games kept in memory")
+    parser.add_argument("--max-games", type=int, default=Config.max_games,
+                        help="concurrent games kept in memory (in-memory store only)")
+    parser.add_argument("--redis-url", default=os.environ.get("REDIS_URL"),
+                        help="keep games, locks and rate limits in Redis (e.g. redis://host:6379/0; default: the "
+                             "REDIS_URL environment variable), so several instances can serve the same games")
     parser.add_argument("--idle-minutes", type=float, default=Config.idle_timeout / 60,
                         help="drop a game after this long without requests")
     parser.add_argument("--rate", type=int, default=Config.rate_per_minute,
@@ -488,6 +493,9 @@ def main():
     Config.default_level = STRONGEST if args.strong else args.level
     Config.record, Config.max_games = not args.no_record, args.max_games
     Config.idle_timeout, Config.rate_per_minute = args.idle_minutes * 60, args.rate
+    global STORE
+    STORE = RedisStore(args.redis_url) if args.redis_url else MemoryStore(args.max_games)
+    STORE_DESC = "Redis" if args.redis_url else f"memory (max {args.max_games} games)"
 
     searching = args.search_depth or args.mcts_sims
     if searching or args.solve_empties:
@@ -513,7 +521,7 @@ def main():
     print(f"\n{'=' * 60}\nReversi Web Interface\n{'=' * 60}")
     print(f"Model: {args.model} (device {device})")
     print(f"Default player: {level_desc(Config.default_level)}")
-    print(f"Games recorded to {GAMES_DIR}" if Config.record else "Games not recorded")
+    print(f"Games kept in {STORE_DESC}; " + (f"recorded to {GAMES_DIR}" if Config.record else "not recorded"))
     print(f"\nStarting server at http://{args.host}:{args.port}\n{'=' * 60}\n")
     app.run(host=args.host, port=args.port, debug=args.debug, threaded=True, use_reloader=False)
 

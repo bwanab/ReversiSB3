@@ -25,7 +25,8 @@ uv run python web_play.py -m r256x12_mid1_CNN_test               # then open htt
 | `--device` | `auto` (CUDA, else MPS, else CPU), `cpu`, `mps`, `cuda` |
 | `-p/--port`, `--host` | default 5000 on 127.0.0.1 (this machine only) |
 | `--no-record` | don't save games to `games/` |
-| `--max-games N` | games kept in memory at once (default 200); new games get HTTP 503 when full |
+| `--max-games N` | in-memory store: games kept at once (default 200); new games get HTTP 503 when full |
+| `--redis-url URL` | keep games, locks and rate limits in Redis (default: the `REDIS_URL` environment variable); see "Deployment" |
 | `--idle-minutes M` | a game with no requests for this long is dropped (default 120) |
 | `--rate N` | API requests per client address per minute (default 120); new games: 10 per minute |
 | `--trust-proxy` | behind one reverse proxy: take the client address from `X-Forwarded-For` |
@@ -70,8 +71,13 @@ model move's `method` starts with its level (e.g. `level 7: MCTS 128 simulations
 - The person plays one color, the model the other. The server answers each of the person's moves with
   the model's reply in the same response, including any passes (the model moves again when the person
   must pass). It is therefore always the person's turn after a request, unless the game is over.
-- Games live in memory: they are lost when the server restarts and dropped after `--idle-minutes`
-  without requests (then requests get HTTP 404, "unknown or expired game").
+- Games live in a store (`web_store.py`): in memory by default (lost when the server restarts), or in
+  Redis. Either way a game is dropped after `--idle-minutes` without requests (then requests get HTTP
+  404, "unknown or expired game").
+- A game is stored as its list of moves (plus redo list, level and last-move info) and rebuilt by
+  replaying the moves with the rules on every request, so a stored game is always consistent.
+- Requests on the same game are handled one at a time (a per-game lock, held across instances with
+  Redis); a request that can't get the lock within 60 s gets HTTP 409.
 
 ## Data conventions
 
@@ -125,7 +131,8 @@ model move's `method` starts with its level (e.g. `level 7: MCTS 128 simulations
 - 400: malformed request (not a JSON object, missing or malformed `game_id`, `action` not an integer
   0-63, illegal move, not your turn, game over, bad `model_color` or `level`, nothing to undo/redo);
 - 404: unknown or expired game, or unknown API path;
-- 405: wrong method; 413: request body over 4 KB; 429: too many requests; 503: game limit reached;
+- 405: wrong method; 409: the game is busy with another request; 413: request body over 4 KB;
+  429: too many requests; 503: game limit reached;
 - 500: internal error (always just `"internal error"`; details go to the server log).
 
 ## Endpoints
@@ -234,8 +241,27 @@ Audit of 2026-10-09 (before it: one global game, debug mode always on); what the
 | XSS | the page writes server data with `textContent` only |
 | CSRF | no cookies or logins, so nothing for another site to ride on |
 
-**For a public site:** keep `--host 127.0.0.1` and put a reverse proxy with TLS (nginx, Caddy) in front,
-started with `--trust-proxy` so rate limits see client addresses. Flask's built-in server is used
-(threaded, one process); games live in that process, so don't run several worker processes. With one
-shared engine, many simultaneous players at level 10 queue for the model (about a second per move).
-Game records grow with traffic; use `--no-record` or rotate `games/`.
+## Deployment
+
+**One always-on server** (simplest): keep `--host 127.0.0.1` and put a reverse proxy with TLS (nginx,
+Caddy) in front, started with `--trust-proxy` so rate limits see client addresses. Flask's built-in
+server is used (threaded). With the in-memory store, run exactly one process.
+
+**Serverless / several instances** (e.g. Cloud Run, Azure Container Apps): start every instance with
+`--redis-url` (or set `REDIS_URL`), e.g. a managed Redis or Upstash. Games, per-game locks (`SET NX`
+with a 120 s expiry, so a crashed instance can't hold a game) and rate-limit counters (per minute) are
+then shared, any instance can serve any request, and instances can scale to zero. Keys:
+`reversi:game:<id>` (JSON, expiring after the idle timeout), `reversi:lock:<id>`,
+`reversi:rate:<kind>:<client>:<minute>`. Notes:
+
+- Each instance has its own engine lock, so each computes one model move at a time.
+- Cold start (measured on the M4 Max, CPU): importing PyTorch, loading the network and the first
+  level-10 move take ~2.5 s; on a serverless platform expect ~5-10 s with container start. GPU
+  instances start much slower (larger images, GPU initialization).
+- `--max-games` applies only to the in-memory store; with Redis the idle timeout and Redis's memory
+  bound the number of games.
+- Instance disks are temporary: use `--no-record`, or collect `games/` from an always-on host.
+
+Speed without a GPU (measured, one game, M4 Max CPU, 12 threads): level 7 ~0.5 s per move, level 9
+~1.3 s, level 10 ~1.8 s; MPS (GPU) is ~2-2.7x faster. Typical cloud CPUs are slower per core. Many
+simultaneous players at high levels queue for each instance's engine.

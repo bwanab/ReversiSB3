@@ -542,7 +542,9 @@ by unguessable `game_id` (several players at once), validated moves, generic err
 idle time / request rate and size, one shared engine lock, security headers, debugger refused off
 localhost, record file names from server-made ids only (the old code put a request field in the file
 name). Rules now come from `util/search.py` (no gym env); undo takes back the person's move and the
-model's reply. Tests: `tests/test_web_play.py`.
+model's reply. Games live in a store (`web_store.py`): in memory, or in Redis with `--redis-url` /
+`REDIS_URL` (games, per-game locks, rate limits shared across instances, for serverless hosting).
+Tests: `tests/test_web_play.py` (the API tests run against both stores; Redis via fakeredis).
 
 **Recording and grading games** (2026-10-09): `web_play.py` saves every game to
 `games/<start time>_<model>_model-<color>.json` (rewritten after each move, undo and redo, so the file
@@ -827,7 +829,7 @@ of the same fork (`bwanab/edax-reversi`, `src/edax_wrapper.c`) and the library p
 Run the suite with `./run_tests.sh` (all tests) or `./run_tests.sh <name>` for one group
 (`environment`, `scenarios`, `edge_cases`, `training`, `integration`, `bc`, `focused`,
 `training_issues`, `step`, `lr`, `features`, `resnet`, `play`, `starts`, `refresh`, `openings`, `mix`, `search`, `mcts`, `levels`, `web`, `endgame`, `egaroucid`, ...).
-The script sets `PYTHONPATH` to the project root and runs through `uv run`. All 182 tests in `tests/`
+The script sets `PYTHONPATH` to the project root and runs through `uv run`. All 193 tests in `tests/`
 are part of the runner and pass. `test_edax_opponent.py`
 in the project root is a separate script that needs the Edax server running.
 

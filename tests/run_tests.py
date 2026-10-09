@@ -36,7 +36,7 @@ def run_all_tests():
     from test_endgame import TestEndgameSolver
     from test_mcts import TestMCTS, TestPolicyValue
     from test_levels import TestLevels
-    from test_web_play import TestWebPlay
+    from test_web_play import TestWebPlay, TestWebPlayRedis
     from test_egaroucid import TestEgaroucidClient
 
     # Create test suite
@@ -79,6 +79,7 @@ def run_all_tests():
         TestPolicyValue,
         TestLevels,
         TestWebPlay,
+        TestWebPlayRedis,
         TestEgaroucidClient
     ]
     
