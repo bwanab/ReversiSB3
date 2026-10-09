@@ -1,12 +1,14 @@
 # web_play.py: web interface and HTTP API
 
-`web_play.py` is a Flask app for playing a person against a trained model in the browser. It serves
-one page (`templates/index.html`, `static/script.js`, `static/style.css`) and a small JSON API that
-the page calls. This document describes the API as implemented (2026-10-09).
+`web_play.py` is a Flask app for playing against a trained model in the browser. It serves one page
+(`templates/index.html`, `static/script.js`, `static/style.css`) and a JSON API that the page calls.
+Several people can play at once: each game has an id. This document describes the API as implemented
+(2026-10-09).
 
 It replaces `web_app_spec.txt`, the spec of an earlier Julia web service (`/start/...`, `/play/...`,
-`/get_action/...` with game UUIDs) that guided the first version of this app. The Python app departed
-from it: one game per server, POST requests with JSON bodies, and undo/redo.
+`/get_action/...`) that guided the first version of this app. The Python app departed from it (POST
+requests with JSON bodies, undo/redo) and at first kept one global game; game ids came back with the
+2026-10-09 security audit (see "Security").
 
 ## Running
 
@@ -15,27 +17,26 @@ uv run python web_play.py -m r256x12_mid1_CNN_test               # then open htt
 ```
 
 | Option | Meaning |
-|---|---|
+| --- | --- |
 | `-m/--model` (required) | model under `models/`, without `.zip` |
-| `--level N` | starting strength level, 1 (weakest) to 10 (strongest, the default); see "Strength levels" |
-| `--strong` | level 10: `--mcts-sims 800 --solve-empties 18 --leaf-solve-empties 16` |
-| `--mcts-sims N` | choose the model's moves by MCTS with N simulations (a "custom" player, see below) |
-| `--search-depth N`, `--search-top-k K`, `--search-depth-early N`, `--early-above E` | negamax search instead of MCTS (pruned at every level) |
-| `--solve-empties N` | play exactly with the endgame solver at <= N empty squares (with or without search) |
-| `--leaf-solve-empties N` | with search/MCTS: score positions with <= N empties exactly |
+| `--level N` | default strength level for new games, 1 (weakest) to 10 (strongest, the default) |
+| `--strong` | default level 10 |
+| `--mcts-sims N`, `--search-depth N`, `--search-top-k K`, `--search-depth-early N`, `--early-above E`, `--solve-empties N`, `--leaf-solve-empties N` | define a **custom** player, offered as level `"custom"` and made the default |
 | `--device` | `auto` (CUDA, else MPS, else CPU), `cpu`, `mps`, `cuda` |
-| `-p/--port`, `--host` | default 5000 on 127.0.0.1 |
-| `-w/--net-width` | legacy CNN option, ignored by saved models |
-
-The search options (`--mcts-sims`, `--search-depth`, `--solve-empties`, ...) define a **custom** player,
-selected at start and listed as level "custom"; without them the model starts at `--level`.
+| `-p/--port`, `--host` | default 5000 on 127.0.0.1 (this machine only) |
+| `--no-record` | don't save games to `games/` |
+| `--max-games N` | games kept in memory at once (default 200); new games get HTTP 503 when full |
+| `--idle-minutes M` | a game with no requests for this long is dropped (default 120) |
+| `--rate N` | API requests per client address per minute (default 120); new games: 10 per minute |
+| `--trust-proxy` | behind one reverse proxy: take the client address from `X-Forwarded-For` |
+| `--debug` | Flask debug mode; refused unless `--host` is local (its debugger can run code) |
 
 ## Strength levels
 
 Defined in `util/levels.py` (also `eval_batch.py --level N`); level 10 is the strongest player.
 
 | Level | Player |
-|---|---|
+| --- | --- |
 | 1 | policy network, sampled at temperature 1.5 |
 | 2 | policy network, sampled at temperature 0.7 |
 | 3 | policy network, top move |
@@ -47,175 +48,157 @@ Defined in `util/levels.py` (also `eval_batch.py --level N`); level 10 is the st
 | 9 | MCTS 400, solver <= 18, leaf solves <= 16 |
 | 10 | MCTS 800, solver <= 18, leaf solves <= 16 |
 
-The level can change at any time, including mid-game; it applies from the model's next move. Each
+A game's level can change at any time (`/api/set_level`); it applies from the model's next move. Each
 model move's `method` starts with its level (e.g. `level 7: MCTS 128 simulations`).
 
 ## Page options
 
 - **Model plays as**: black or white, for the next new game.
-- **Strength**: the level (1-10, or Custom); changes apply immediately (`/api/set_level`), and the
-  selection is also sent with "New Game".
+- **Strength**: the level (1-10, or Custom); sent with "New Game", and changes during a game apply to
+  that game from the model's next move.
 - **Show hints**: shows or hides the model's move probabilities on your candidate moves, its list of
   top policy moves, and the solver's verdict ("model wins by N with perfect play"). Display only: the
   server always sends them. Remembered per browser (`localStorage`).
 
-## Model
+## Games and ids
 
-- **One game per server process**, held in a global `game_state`. There are no game IDs or sessions;
-  every request acts on the current game, and two browsers share it.
-- The model plays one color (chosen at `new_game`), the person the other. The server always answers
-  a person's move with the model's reply in the same response, including any passes.
-- Every game is saved to `games/<YYYYmmdd-HHMMSS>_<model>_model-<color>.json`, rewritten after each
-  move, undo and redo (see "Game records").
+- `POST /api/new_game` creates a game and returns its `game_id`: 24 random URL-safe characters
+  (`secrets.token_urlsafe(18)`). Every other request about the game must carry it: in the JSON body
+  for POSTs, as `?game_id=` for GETs.
+- The id is the game's only credential: whoever has it can play the game. It is never listed by the
+  server and isn't written in full to disk.
+- The person plays one color, the model the other. The server answers each of the person's moves with
+  the model's reply in the same response, including any passes (the model moves again when the person
+  must pass). It is therefore always the person's turn after a request, unless the game is over.
+- Games live in memory: they are lost when the server restarts and dropped after `--idle-minutes`
+  without requests (then requests get HTTP 404, "unknown or expired game").
 
 ## Data conventions
 
 | Item | Format |
-|---|---|
+| --- | --- |
 | Board | 8x8 list of rows; `board[row][col]` is `1` (black), `-1` (white) or `0` (empty). Row 0 is the top row |
 | Action | integer `row * 8 + col` (0-63) |
 | Notation | column letter + row number: action 0 = `A1` (top left), 19 = `D3`, 63 = `H8` |
 | Color | `"black"` / `"white"` (black moves first) |
-| Winner | `"black"`, `"white"` or `"draw"` |
+| Winner | `"black"`, `"white"`, `"draw"`, or `null` while the game goes on |
 
-**Valid move** object:
-
-```json
-{"row": 2, "col": 3, "action": 19, "probability": 0.41}
-```
-
-`probability` is present only when it is the person's turn. It is the model's *policy network*
-probability for that move, i.e. the network's prediction of the person's move, not an evaluation.
-
-**`last_move`** (after the model has moved):
+**State** (the response of `new_game`, `make_move`, `undo`, `redo`, `game_state`):
 
 ```json
 {
-  "action": 37, "player": "model",
-  "analysis": [{"notation": "F5", "probability": 0.62, "action": 37}, ...],
-  "method": "MCTS 800 simulations",
-  "exact_score": 4
-}
-```
-
-- `analysis`: the policy network's top 5 moves with their probabilities (plus the move played, if it
-  wasn't among them). It shows what the network alone would play; the move actually played comes
-  from the configured player and is marked in the UI.
-- `method`: how the move was chosen: `network`, `policy sample (temperature T)`,
-  `MCTS N simulations`, `search depth N`, or `solver (N empty)`, prefixed with the level
-  (`level 9: ...`) unless the custom player is selected.
-- `exact_score`: only with the solver: the final disc difference for the model with perfect play.
-
-After a person's move, the server sets `last_move` to `{"action": ..., "player": "human"}` internally,
-but responses carry the model's `last_move` (the person's move is already known to the page).
-
-**Standard state response** (fields vary by endpoint, see below):
-
-```json
-{
+  "game_id": "E6eKEOm3foU-1hmBX0Y1FTSY",
   "board": [[0, 0, ...], ...],
-  "current_player": "white",
-  "valid_moves": [ ...valid move objects... ],
+  "current_player": "black",
+  "valid_moves": [{"row": 2, "col": 3, "action": 19, "probability": 0.41}, ...],
   "piece_count": {"black": 4, "white": 1},
   "game_over": false,
-  "last_move": { ... },
-  "model_passed": true,
+  "winner": null,
+  "model_color": "white",
+  "level": 10,
   "can_undo": true,
-  "can_redo": false
+  "can_redo": false,
+  "last_move": { ... },
+  "model_passed": true
 }
 ```
 
-- `model_passed: true` appears when the model had no legal move and the turn came back to the person.
-- When the person has no legal move after the model's move, the model simply moves again (the
-  response shows the position after the model's last move; no flag is set).
-- Game over: `game_over: true`, `winner`, `piece_count`, `valid_moves: []`, `board`; `current_player`
-  is omitted.
+- `valid_moves`: the person's legal moves (empty when the game is over). `probability` is the model's
+  *policy network* probability for the move: the network's guess at what the person will play, not an
+  evaluation.
+- `last_move` (present once the model has moved): the model's latest move.
 
-**Errors**: HTTP 400 with `{"error": "<message>"}` (no game in progress, game over, no action given,
-nothing to undo/redo, or an exception while applying a move).
+  ```json
+  {"action": 37, "player": "model", "method": "level 10: MCTS 800 simulations",
+   "analysis": [{"notation": "F5", "probability": 0.62, "action": 37}, ...], "exact_score": 4}
+  ```
+
+  `analysis`: the policy network's top 5 moves (plus the move played if it wasn't among them), i.e.
+  what the network alone would play. `method`: `network`, `policy sample (temperature T)`,
+  `MCTS N simulations`, `search depth N` or `solver (N empty)`, prefixed with the level unless the
+  custom player is used. `exact_score`: with the solver, the final disc difference for the model with
+  perfect play. After an undo, `last_move` is the model's latest remaining move, without `analysis`.
+- `model_passed: true`: the model had no legal move after the person's move.
+
+**Errors**: a JSON object `{"error": "<message>"}` with HTTP status:
+
+- 400: malformed request (not a JSON object, missing or malformed `game_id`, `action` not an integer
+  0-63, illegal move, not your turn, game over, bad `model_color` or `level`, nothing to undo/redo);
+- 404: unknown or expired game, or unknown API path;
+- 405: wrong method; 413: request body over 4 KB; 429: too many requests; 503: game limit reached;
+- 500: internal error (always just `"internal error"`; details go to the server log).
 
 ## Endpoints
 
 ### `GET /`
+
 The game page.
 
 ### `POST /api/new_game`
-Start a new game (discarding the current one; its record file stays).
 
-Request: `{"model_color": "black" | "white", "level": 1-10 | "custom"}` (`model_color` default
-`"black"`; `level` optional, default: keep the current level). An invalid level gives HTTP 400.
-
-Response: the standard state for the starting position, plus `"model_color"` and `"level"`. If the
-model plays black, the response is instead the state after the model's first move (with
-`last_move`, without `model_color`/`level`).
+Request: `{"model_color": "black" | "white", "level": 1-10 | "custom"}`, both optional (defaults:
+`"black"` and the server's default level). Response: the state of the new game, after the model's
+first move if the model plays black.
 
 ### `POST /api/make_move`
-Play the person's move, then the model's reply.
 
-Request: `{"action": <0-63>}`. The move is not validated against the legal moves beyond what the
-game logic does; the page only sends moves from `valid_moves`.
-
-Response, one of:
-- the person's move ended the game: game-over state;
-- the model has no move: standard state with `model_passed: true` (or game over if neither side can
-  move);
-- otherwise: the state after the model's reply (with `last_move`), or game over if it ended the game.
-
-### `GET /api/game_state`
-The current state without changing it: standard fields plus `winner` and `model_name`. Probabilities
-are included when it is the person's turn. Not used by the page; useful for scripts and debugging.
+Request: `{"game_id": "...", "action": 0-63}`. The move must be legal and it must be the person's turn.
+Response: the state after the move and the model's reply.
 
 ### `POST /api/undo`
-Take back the last move (person's or model's) and put it on the redo stack. The side who made it is
-to move again. The page undoes once per click, so taking back your own move after the model's reply
-takes two clicks.
 
-Request body: none needed (`{}`).
-
-Response: standard state (`game_over: false`), with probabilities if it is now the person's turn. If it
-is the model's turn after an undo, the model does not move automatically: undo again to take back
-your own move, or redo. (Clicking a square in that state plays it as the model's color.)
+Request: `{"game_id": "..."}`. Takes back the person's last move together with the model's replies
+after it, so it is the person's turn again in the position before that move. Response: the state.
 
 ### `POST /api/redo`
-Replay the most recently undone move. A new move clears the redo stack.
 
-Response: standard state; if it is then the model's turn, the model moves (as in `make_move`) and the
-response is the state after its move.
+Request: `{"game_id": "..."}`. Replays the most recently undone move of the person; the model then
+replies again (at higher levels and with sampling it may choose differently). A new move clears the
+redo list. Response: the state.
+
+### `GET /api/game_state?game_id=...`
+
+The current state, unchanged.
+
+### `POST /api/set_level`
+
+Request: `{"game_id": "...", "level": 1-10 | "custom"}`. Response:
+`{"game_id": "...", "level": 7, "description": "level 7: MCTS 128 simulations, leaf solves <= 12, solver <= 14 empties"}`.
 
 ### `GET /api/levels`
-The strength levels and the current one:
+
+The levels and the server's default (not tied to a game):
 
 ```json
 {"levels": [{"level": 1, "description": "policy network, sampled (temperature 1.5)"}, ...,
             {"level": "custom", "description": "custom: MCTS 400 simulations, ..."}],
- "current": 10}
+ "default": 10}
 ```
 
 The `custom` entry appears only when the server was started with search options.
 
-### `POST /api/set_level`
-Request: `{"level": 1-10 | "custom"}`. Applies from the model's next move. Response:
-`{"level": 7, "description": "level 7: MCTS 128 simulations, leaf solves <= 12, solver <= 14 empties"}`;
-HTTP 400 for an invalid level.
+### `GET /api/get_moves?game_id=...`
 
-### `GET /api/get_moves`
-The move history of the current game:
+The game's moves:
 
 ```json
-{"moves": [{"number": 1, "player": "black", "action": 37, "notation": "F5"}, ...], "total": 12}
+{"moves": [{"number": 1, "player": "black", "by": "human", "action": 19, "notation": "D3"}, ...],
+ "total": 12}
 ```
 
-`player` is the color that moved (not person/model).
+`player` is the color that moved, `by` is `human` or `model`.
 
 ## Game records
 
-`games/<YYYYmmdd-HHMMSS>_<model>_model-<color>.json`, rewritten after every move, undo and redo so the
-file always matches the game as it stands (lines abandoned by undo are not kept):
+Unless `--no-record`, every game is saved to `games/<YYYYmmdd-HHMMSS>_<first 8 characters of the id>.json`,
+rewritten after each move, undo and redo so the file matches the game as it stands (lines abandoned by
+undo are not kept):
 
 ```json
 {
   "model": "r256x12_mid1_CNN_test",
   "player": "level 10: MCTS 800 simulations, leaf solves <= 16, solver <= 18 empties",
+  "level": 10,
   "model_color": "black",
   "moves": [
     {"square": "F5", "action": 37, "color": "black", "by": "model",
@@ -229,17 +212,30 @@ file always matches the game as it stands (lines abandoned by undo are not kept)
 }
 ```
 
-`player` is the level selected when the file was last written; if the level changed mid-game, each
-model move's `method` shows the level that chose it.
+`player` and `level` are the level when the file was last written; if the level changed mid-game,
+each model move's `method` shows the level that chose it. `analyze_games.py games/*.json` grades the
+person's (or an opponent app's) moves with Egaroucid next to the policy probabilities the model gave
+them (see CLAUDE.md, "Recording and grading games").
 
-`analyze_games.py games/*.json` grades the person's (or opponent app's) moves with Egaroucid next to
-the policy probabilities the model gave them (see CLAUDE.md, "Recording and grading games").
+## Security
 
-## Known quirks
+Audit of 2026-10-09 (before it: one global game, debug mode always on); what the server does now:
 
-- Some game-over responses omit `can_undo`/`can_redo`; the page then leaves the buttons as they were.
-- After an undo that leaves the model to move, the page shows the model's legal moves and a click
-  plays one for the model's color (see `/api/undo`).
-- The `probability` shown on the person's moves and the `analysis` of the model's move are always the
-  bare policy network's, even when the model plays with MCTS or the solver.
-- One shared game per server: opening the page in a second browser continues the same game.
+| Risk | Handling |
+| --- | --- |
+| Werkzeug's interactive debugger executes code for anyone who can trigger an error | debug off by default; `--debug` refused unless the host is local |
+| Path traversal: a request field (`model_color`) went into the record's file name | file names are built only from the time and the server-made id; `model_color` must be `black`/`white` |
+| Anyone could play or reset anyone's game (one global game) | games by unguessable id; per-game locks serialize requests to the same game |
+| Unvalidated moves (any value, illegal moves, moves out of turn) could corrupt a game | `action` must be an integer 0-63, legal, on the person's turn; the rules are `util/search.py`'s |
+| Exception text returned to clients | generic `"internal error"`; details logged server-side |
+| Non-JSON bodies caused unhandled errors | bodies must be JSON objects (else 400) |
+| Resource exhaustion (MCTS costs ~1 s per move) | max games, idle expiry, per-address request and new-game rate limits, 4 KB request limit; model moves computed one at a time (shared lock), which also keeps the network and MCTS objects single-threaded |
+| Clickjacking, content sniffing | `Content-Security-Policy` (`default-src 'self'`, `frame-ancestors 'none'`), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`; API responses `Cache-Control: no-store` |
+| XSS | the page writes server data with `textContent` only |
+| CSRF | no cookies or logins, so nothing for another site to ride on |
+
+**For a public site:** keep `--host 127.0.0.1` and put a reverse proxy with TLS (nginx, Caddy) in front,
+started with `--trust-proxy` so rate limits see client addresses. Flask's built-in server is used
+(threaded, one process); games live in that process, so don't run several worker processes. With one
+shared engine, many simultaneous players at level 10 queue for the model (about a second per move).
+Game records grow with traffic; use `--no-record` or rotate `games/`.

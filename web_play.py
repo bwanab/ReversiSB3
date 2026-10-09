@@ -1,821 +1,522 @@
 #!/usr/bin/env python3
 """
-Web interface for playing Reversi against trained model.
-Provides visual board and click-to-move interface.
+Web interface for playing Reversi against a trained model: a page (templates/, static/) and a JSON
+API (web_app_spec.md). Several people can play at once; each game has an unguessable id that the
+page sends with every request.
+
+Hardened for running in public (2026-10-09 audit): games by id with per-game locks; inputs validated
+(moves must be legal and it must be the person's turn); generic error messages; limits on games, idle
+time, request size and request rate; model moves computed one at a time (shared engine lock);
+security headers; the debugger only on localhost; game records named by server-made ids only.
+For a public site run it behind a reverse proxy with TLS (nginx, Caddy) and --trust-proxy.
 """
 
-from flask import Flask, render_template, jsonify, request
-import json
-import os
-import time
-import numpy as np
-import torch
 import argparse
-from util.reversi import ReversiEnvCNN
-from util.util import get_model, mask_fn, BLACK, WHITE, get_action, get_device
-from util.search import SearchPlayer
+import collections
+import json
+import logging
+import os
+import re
+import secrets
+import threading
+import time
+
+import numpy as np
+from flask import Flask, jsonify, render_template, request
+
 from util.levels import LEVELS, STRONGEST, describe, make_player
+from util.search import SearchPlayer, legal_moves, play_move, policy_logits
 
-
+log = logging.getLogger("web_play")
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = 4096          # requests are tiny JSON bodies
 
-# Global game state
-game_state = {
-    'env': None,
-    'model': None,
-    'player': None,        # player choosing the model's moves (network, search and/or solver)
-    'player_desc': '',
-    'level': None,         # strength level 1-10 (util/levels.py), or 'custom' (command-line search options)
-    'players': {},         # level -> player, created on first use
-    'custom_player': None, # player from explicit command-line options (level 'custom')
-    'custom_desc': '',
-    'model_color': BLACK,  # Model plays as BLACK by default
-    'game_over': False,
-    'winner': None,
-    'last_move': None,
-    'model_name': None,
-    'move_history': [],  # List of {action, player, board_before[, method]}
-    'redo_stack': [],  # Stack for redo functionality
-    'game_file': None,  # games/<start time>_<model>_<model color>.json, rewritten after every move
-}
-
-GAMES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'games')
+BLACK, WHITE = 1, -1
+COLOR_NAME = {BLACK: "black", WHITE: "white"}
+GAMES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "games")
+GAME_ID_RE = re.compile(r"^[A-Za-z0-9_-]{16,64}$")
 
 
-def board_to_list(board):
-    """Convert numpy board to list for JSON serialization."""
-    # Board is shape (3, 8, 8) - we only need the first channel
-    return board[0].tolist()
+class Config:
+    """Server settings (set from the command line in main())."""
+    model = None
+    model_name = ""
+    default_level = STRONGEST
+    custom_player = None          # from explicit search options: level "custom"
+    custom_desc = ""
+    record = True
+    max_games = 200
+    idle_timeout = 2 * 3600       # seconds without a request before a game is dropped
+    rate_per_minute = 120         # API requests per client address per minute
+    new_games_per_minute = 10
 
 
-def get_valid_moves(env, board, include_probabilities=False):
-    """Get list of valid moves as (row, col) tuples.
-
-    Args:
-        env: The environment
-        board: Current board state
-        include_probabilities: If True, include model's probability for each move
-    """
-    action_mask = mask_fn(env)
-    valid_moves = []
-
-    # Get move probabilities if requested
-    move_probs = {}
-    if include_probabilities:
-        move_probs = get_move_probabilities(env, board)
-
-    for i in range(64):
-        if action_mask[i]:
-            row = i // 8
-            col = i % 8
-            move_entry = {'row': row, 'col': col, 'action': i}
-
-            # Add probability if available
-            if i in move_probs:
-                move_entry['probability'] = move_probs[i]
-
-            valid_moves.append(move_entry)
-
-    return valid_moves
+ENGINE_LOCK = threading.Lock()    # model moves and probabilities are computed one at a time
+PLAYERS = {}                      # level -> player, created on first use (under ENGINE_LOCK)
+GAMES = {}                        # game id -> Game
+GAMES_LOCK = threading.Lock()
 
 
-def get_move_probabilities(env, board):
-    """Get model's probability distribution for all valid moves.
-
-    Returns:
-        dict: Mapping of action -> probability for each valid move
-    """
-    model = game_state['model']
-
-    # Get observation from current player's perspective
-    # If current player is WHITE, flip board so model sees WHITE as positive
-    if env.player == WHITE:
-        obs = board.copy() * -1
-    else:
-        obs = board.copy()
-
-    # Get action mask for current player
-    action_mask = mask_fn(env)
-
-    # Get action with probabilities using verbose mode
-    action, logits, valid_actions = get_action(model, obs, action_mask, deterministic=True, verbose=True)
-
-    # Convert logits to probabilities using softmax
-    softmax = torch.nn.Softmax(dim=0)
-    probs = softmax(logits).detach().numpy()
-
-    # Create mapping of action -> probability
-    move_probs = {}
-    if valid_actions is not None and len(valid_actions) > 0:
-        for i, act in enumerate(valid_actions):
-            move_probs[int(act)] = float(probs[i])
-
-    return move_probs
+class ApiError(Exception):
+    def __init__(self, message, status=400):
+        super().__init__(message)
+        self.message, self.status = message, status
 
 
-def get_model_move(env, board):
-    """Get model's move using current policy and return analysis."""
-    model = game_state['model']
+def notation(action):
+    """Action 0-63 -> 'A1'..'H8' (column letter, row number; row 1 is the top row)."""
+    return f"{'ABCDEFGH'[action % 8]}{action // 8 + 1}"
 
-    # Set env.player to current player for mask_fn
-    # (mask_fn uses env.player to determine valid moves)
 
-    # Get observation from current player's perspective
-    # If model is playing WHITE, flip board so model sees WHITE as positive
-    if env.player == WHITE:
-        obs = board.copy() * -1  # Flip perspective for WHITE
-    else:
-        obs = board.copy()
+def player_for(level):
+    if level == "custom":
+        return Config.custom_player
+    if level not in PLAYERS:
+        PLAYERS[level] = make_player(Config.model, level)
+    return PLAYERS[level]
 
-    # Get action mask for current player
-    action_mask = mask_fn(env)
 
-    # Get action with probabilities using verbose mode
-    action, logits, valid_actions = get_action(model, obs, action_mask, deterministic=True, verbose=True)
+def level_desc(level):
+    return Config.custom_desc if level == "custom" else f"level {level}: {describe(level)}"
 
-    # Convert logits to probabilities using softmax
-    softmax = torch.nn.Softmax(dim=0)
-    probs = softmax(logits).detach().numpy()
 
-    # Create analysis: list of (notation, probability) for top moves
-    analysis = []
-    if valid_actions is not None and len(valid_actions) > 0:
-        # Pair each action with its probability
-        action_probs = [(valid_actions[i], probs[i]) for i in range(len(valid_actions))]
+def parse_level(value):
+    if value == "custom" and Config.custom_player is not None:
+        return "custom"
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        raise ApiError(f"level must be 1-{STRONGEST}")
+    try:
+        level = int(value)
+    except ValueError:
+        raise ApiError(f"level must be 1-{STRONGEST}")
+    if level not in LEVELS:
+        raise ApiError(f"level must be 1-{STRONGEST}")
+    return level
 
-        # Sort by probability (descending)
-        action_probs.sort(key=lambda x: x[1], reverse=True)
 
-        # Take top 5 and convert to notation
-        for act, prob in action_probs[:5]:
-            notation = action_to_notation(int(act))
-            analysis.append({
-                'notation': notation,
-                'probability': float(prob),
-                'action': int(act)
-            })
+class Game:
+    """One game: the board as 64 values (1 = black, -1 = white, row-major from the top left)."""
 
-    # The move actually played comes from the configured player; the analysis above stays the
-    # network's own probabilities (the panel marks the chosen move with a star).
-    info = {'method': 'network'}
-    player = game_state['player']
-    if player is not None:
-        flat = obs.reshape(64).astype(np.int8)
-        empties = int((flat == 0).sum())
-        action = player.choose_many([flat])[0]
+    def __init__(self, model_color, level):
+        self.id = secrets.token_urlsafe(18)
+        self.lock = threading.Lock()
+        self.model_color, self.level = model_color, level
+        self.board = np.zeros(64, dtype=np.int8)
+        self.board[[27, 36]], self.board[[28, 35]] = WHITE, BLACK
+        self.to_move = BLACK
+        self.history = []             # {action, color, by, board_before, method}
+        self.redo = []                # actions of undone human moves
+        self.over, self.winner = False, None
+        self.last_move = None         # info on the model's latest move
+        self.model_passed = False
+        self.started = time.strftime("%Y%m%d-%H%M%S")
+        self.touched = time.time()
+
+    @property
+    def human_color(self):
+        return -self.model_color
+
+    def legal(self, color=None):
+        color = self.to_move if color is None else color
+        return legal_moves(self.board * color)
+
+    def apply(self, action, by, method=None):
+        before = self.board.copy()
+        color = self.to_move
+        self.board = (-play_move(self.board * color, action) * color).astype(np.int8)
+        self.history.append({"action": int(action), "color": COLOR_NAME[color], "by": by,
+                             "board_before": before, **({"method": method} if method else {})})
+        # next to move: the opponent, unless it has to pass; game over if neither can move
+        if len(self.legal(-color)):
+            self.to_move = -color
+        elif len(self.legal(color)):
+            self.to_move = color
+        else:
+            self.over = True
+            diff = int((self.board == BLACK).sum() - (self.board == WHITE).sum())
+            self.winner = "black" if diff > 0 else "white" if diff < 0 else "draw"
+
+    def model_moves(self):
+        """Let the model move while it is its turn (it moves again when the person must pass)."""
+        while not self.over and self.to_move == self.model_color:
+            action, info = model_move(self)
+            self.apply(action, "model", info["method"])
+            self.last_move = {"action": action, "player": "model", **info}
+
+    def human_move(self, action, from_redo=False):
+        if self.over:
+            raise ApiError("the game is over")
+        if self.to_move != self.human_color:
+            raise ApiError("it is not your turn")
+        if isinstance(action, bool) or not isinstance(action, int) or not 0 <= action < 64:
+            raise ApiError("action must be an integer 0-63")
+        if action not in set(int(m) for m in self.legal()):
+            raise ApiError("illegal move")
+        if not from_redo:
+            self.redo = []
+        self.apply(action, "human")
+        self.last_move = None
+        self.model_passed = not self.over and self.to_move == self.human_color
+        self.model_moves()
+
+    def undo(self):
+        """Take back the person's last move and the model's replies after it."""
+        human = [i for i, m in enumerate(self.history) if m["by"] == "human"]
+        if not human:
+            raise ApiError("no moves to undo")
+        entry = self.history[human[-1]]
+        self.redo.append(entry["action"])
+        self.board = entry["board_before"].copy()
+        del self.history[human[-1]:]
+        self.to_move, self.over, self.winner, self.model_passed = self.human_color, False, None, False
+        model = [m for m in self.history if m["by"] == "model"]
+        self.last_move = {"action": model[-1]["action"], "player": "model",
+                          "method": model[-1].get("method", "")} if model else None
+
+    def redo_move(self):
+        if not self.redo:
+            raise ApiError("no moves to redo")
+        self.human_move(self.redo.pop(), from_redo=True)
+
+    def move_probabilities(self):
+        """The policy network's probability for each legal move of the side to move."""
+        legal = self.legal()
+        with ENGINE_LOCK:
+            lg = policy_logits(Config.model, (self.board * self.to_move)[None])[0][legal].astype(np.float64)
+        p = np.exp(lg - lg.max())
+        return dict(zip((int(m) for m in legal), (float(x) for x in p / p.sum())))
+
+    def state(self):
+        """The JSON state sent after every request."""
+        human_turn = not self.over and self.to_move == self.human_color
+        probs = self.move_probabilities() if human_turn else {}
+        valid = [{"row": a // 8, "col": a % 8, "action": a, **({"probability": probs[a]} if a in probs else {})}
+                 for a in (int(m) for m in self.legal())] if human_turn else []
+        out = {"game_id": self.id, "board": self.board.reshape(8, 8).tolist(),
+               "current_player": COLOR_NAME[self.to_move], "valid_moves": valid,
+               "piece_count": {"black": int((self.board == BLACK).sum()), "white": int((self.board == WHITE).sum())},
+               "game_over": self.over, "winner": self.winner, "model_color": COLOR_NAME[self.model_color],
+               "level": self.level, "can_undo": any(m["by"] == "human" for m in self.history),
+               "can_redo": bool(self.redo) and not self.over}
+        if self.last_move:
+            out["last_move"] = self.last_move
+        if self.model_passed:
+            out["model_passed"] = True
+        return out
+
+    def save(self):
+        """Write the game as it stands to games/<start time>_<id prefix>.json (see web_app_spec.md)."""
+        if not Config.record or not self.history:
+            return
+        moves = [{"square": notation(m["action"]), "action": m["action"], "color": m["color"], "by": m["by"],
+                  "board_before": m["board_before"].astype(int).tolist(),
+                  **({"method": m["method"]} if m.get("method") else {})} for m in self.history]
+        record = {"model": Config.model_name, "player": level_desc(self.level), "level": self.level,
+                  "model_color": COLOR_NAME[self.model_color], "moves": moves,
+                  "final_board": self.board.astype(int).tolist(), "black": int((self.board == BLACK).sum()),
+                  "white": int((self.board == WHITE).sum()), "finished": self.over}
+        os.makedirs(GAMES_DIR, exist_ok=True)
+        path = os.path.join(GAMES_DIR, f"{self.started}_{self.id[:8]}.json")   # server-made name only
+        try:
+            with open(path, "w") as f:
+                json.dump(record, f, indent=1)
+        except OSError:
+            log.exception("could not save game record %s", path)
+
+
+def model_move(game):
+    """The model's move in game (side to move = the model) and how it was chosen."""
+    flat = game.board * game.to_move
+    empties = int((flat == 0).sum())
+    legal = legal_moves(flat)
+    with ENGINE_LOCK:
+        player = player_for(game.level)
+        action = int(player.choose_many([flat])[0])
+        lg = policy_logits(Config.model, flat[None])[0][legal].astype(np.float64)
+        exact = None
         if player.solve_empties and empties <= player.solve_empties:
             from util.endgame import solve
-            score, _, _ = solve(flat)
-            info = {'method': f'solver ({empties} empty)', 'exact_score': int(score)}
-        elif player.mcts is not None:
-            info = {'method': f'MCTS {player.mcts.sims} simulations'}
-        elif getattr(player, 'temperature', None):
-            info = {'method': f'policy sample (temperature {player.temperature})'}
-        elif player.depth > 0:
-            depth = player.early_depth if player.early_depth and empties > player.early_above else player.depth
-            info = {'method': f'search depth {depth}'}
-        if all(a['action'] != int(action) for a in analysis):
-            prob = next((float(probs[i]) for i in range(len(valid_actions)) if int(valid_actions[i]) == int(action)), 0.0)
-            analysis.append({'notation': action_to_notation(int(action)), 'probability': prob, 'action': int(action)})
-
-    if game_state['level'] not in (None, 'custom'):
-        info['method'] = f"level {game_state['level']}: {info['method']}"
-    return int(action), analysis, info
-
-
-def count_pieces(board):
-    """Count black and white pieces on board."""
-    # Board shape is (3, 8, 8), channel 0 contains the pieces
-    board_2d = board[0]
-    black_count = np.sum(board_2d == BLACK)
-    white_count = np.sum(board_2d == WHITE)
-    return {'black': int(black_count), 'white': int(white_count)}
-
-
-def record_move(action, player_str, board_before, method=None):
-    """Record a move in the move history (method: how the model chose it) and save the game."""
-    game_state['move_history'].append({
-        'action': int(action),
-        'player': player_str,
-        'board_before': board_before.copy(),
-        **({'method': method} if method else {})
-    })
-    # Clear redo stack when new move is made
-    game_state['redo_stack'] = []
-    save_game()
-
-
-def save_game():
-    """Write the game as it now stands (after any undo/redo) to game_state['game_file'] as JSON:
-    every move with its square, color, who played it (model/human), the board before it (64 values,
-    1 = black, -1 = white) and, for model moves, how it was chosen; plus the final board and result.
-    For later analysis of the opponent's moves (e.g. Piccolo's), see analyze_games.py."""
-    if game_state['game_file'] is None or not game_state['move_history']:
-        return
-    env = game_state['env']
-    model_color = 'black' if game_state['model_color'] == BLACK else 'white'
-    moves = [{'square': action_to_notation(m['action']), 'action': m['action'], 'color': m['player'],
-              'by': 'model' if m['player'] == model_color else 'human',
-              'board_before': np.asarray(m['board_before']).reshape(64).astype(int).tolist(),
-              **({'method': m['method']} if m.get('method') else {})}
-             for m in game_state['move_history']]
-    final = np.asarray(env.board).reshape(64)
-    record = {'model': game_state['model_name'], 'player': game_state['player_desc'],
-              'model_color': model_color, 'moves': moves, 'final_board': final.astype(int).tolist(),
-              'black': int((final == BLACK).sum()), 'white': int((final == WHITE).sum()),
-              'finished': env.get_winner(env.board) is not None}
-    os.makedirs(GAMES_DIR, exist_ok=True)
-    with open(game_state['game_file'], 'w') as f:
-        json.dump(record, f, indent=1)
-
-
-def set_level(level):
-    """Switch the model's player to a strength level (1-10) or 'custom'; applies from its next move."""
-    if level == 'custom':
-        if game_state['custom_player'] is None and not game_state['custom_desc']:
-            raise ValueError('no custom player (start web_play.py with search options)')
-        game_state['player'], game_state['player_desc'] = game_state['custom_player'], game_state['custom_desc']
+            exact = int(solve(flat)[0])
+    p = np.exp(lg - lg.max())
+    p /= p.sum()
+    order = np.argsort(-p)[:5]
+    analysis = [{"notation": notation(int(legal[i])), "probability": float(p[i]), "action": int(legal[i])}
+                for i in order]
+    if all(a["action"] != action for a in analysis):
+        i = int(np.flatnonzero(legal == action)[0])
+        analysis.append({"notation": notation(action), "probability": float(p[i]), "action": action})
+    if exact is not None:
+        method = f"solver ({empties} empty)"
+    elif player.mcts is not None:
+        method = f"MCTS {player.mcts.sims} simulations"
+    elif getattr(player, "temperature", None):
+        method = f"policy sample (temperature {player.temperature})"
+    elif player.depth > 0:
+        depth = player.early_depth if player.early_depth and empties > player.early_above else player.depth
+        method = f"search depth {depth}"
     else:
-        level = int(level)
-        if level not in LEVELS:
-            raise ValueError(f'level must be 1-{STRONGEST}')
-        if level not in game_state['players']:
-            game_state['players'][level] = make_player(game_state['model'], level)
-        game_state['player'] = game_state['players'][level]
-        game_state['player_desc'] = f"level {level}: {describe(level)}"
-    game_state['level'] = level
+        method = "network"
+    if game.level != "custom":
+        method = f"level {game.level}: {method}"
+    info = {"method": method, "analysis": analysis}
+    if exact is not None:
+        info["exact_score"] = exact
+    return action, info
 
 
-def action_to_notation(action):
-    """Convert action number to chess-style notation (e.g., 19 -> D3)."""
-    row = action // 8
-    col = action % 8
-    return f"{'ABCDEFGH'[col]}{row + 1}"
+# ---- request handling ----
+
+RATE = collections.defaultdict(collections.deque)    # (client, kind) -> request times
+RATE_LOCK = threading.Lock()
 
 
-@app.route('/')
+def rate_limit(kind, per_minute):
+    now, key = time.time(), (request.remote_addr or "?", kind)
+    with RATE_LOCK:
+        q = RATE[key]
+        while q and q[0] < now - 60:
+            q.popleft()
+        if len(q) >= per_minute:
+            raise ApiError("too many requests; slow down", 429)
+        q.append(now)
+        if len(RATE) > 10000:                         # forget idle clients
+            for k in [k for k, v in RATE.items() if not v or v[-1] < now - 60]:
+                del RATE[k]
+
+
+def body():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        raise ApiError("expected a JSON object")
+    return data
+
+
+def find_game(game_id):
+    if not isinstance(game_id, str) or not GAME_ID_RE.match(game_id):
+        raise ApiError("missing or malformed game_id")
+    with GAMES_LOCK:
+        game = GAMES.get(game_id)
+    if game is None:
+        raise ApiError("unknown or expired game; start a new game", 404)
+    game.touched = time.time()
+    return game
+
+
+def drop_idle_games():
+    now = time.time()
+    with GAMES_LOCK:
+        for gid in [g for g, game in GAMES.items() if now - game.touched > Config.idle_timeout]:
+            del GAMES[gid]
+
+
+@app.before_request
+def limit_api_rate():
+    if request.path.startswith("/api/"):
+        rate_limit("api", Config.rate_per_minute)
+
+
+@app.errorhandler(ApiError)
+def api_error(e):
+    return jsonify({"error": e.message}), e.status
+
+
+@app.errorhandler(404)
+def not_found(e):
+    return (jsonify({"error": "not found"}), 404) if request.path.startswith("/api/") else (e.get_response(), 404)
+
+
+@app.errorhandler(405)
+def bad_method(e):
+    return jsonify({"error": "method not allowed"}), 405
+
+
+@app.errorhandler(413)
+def too_large(e):
+    return jsonify({"error": "request too large"}), 413
+
+
+@app.errorhandler(Exception)
+def internal_error(e):
+    log.exception("unhandled error on %s", request.path)
+    return jsonify({"error": "internal error"}), 500
+
+
+@app.after_request
+def security_headers(response):
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'")
+    if request.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.route("/")
 def index():
-    """Serve the main game page."""
-    return render_template('index.html')
+    return render_template("index.html")
 
 
-@app.route('/api/new_game', methods=['POST'])
+@app.route("/api/new_game", methods=["POST"])
 def new_game():
-    """Start a new game."""
-    data = request.json
-    model_color = data.get('model_color', 'black')
-    if data.get('level') is not None:
-        try:
-            set_level(data['level'])
-        except ValueError as e:
-            return jsonify({'error': str(e)}), 400
-
-    # Create new environment
-    env = ReversiEnvCNN()
-    board, _ = env.reset()
-
-    game_state['env'] = env
-    game_state['model_color'] = BLACK if model_color == 'black' else WHITE
-    game_state['game_over'] = False
-    game_state['winner'] = None
-    game_state['last_move'] = None
-    game_state['move_history'] = []
-    game_state['redo_stack'] = []
-    game_state['game_file'] = os.path.join(
-        GAMES_DIR, f"{time.strftime('%Y%m%d-%H%M%S')}_{game_state['model_name']}_model-{model_color}.json")
-
-    # Get initial state
-    current_player = int(env.player)
-
-    # Include probabilities if it's human's turn (not model's turn)
-    is_human_turn = (current_player != game_state['model_color'])
-    valid_moves = get_valid_moves(env, board, include_probabilities=is_human_turn)
-    piece_count = count_pieces(board)
-
-    response = {
-        'board': board_to_list(board),
-        'current_player': 'black' if current_player == BLACK else 'white',
-        'valid_moves': valid_moves,
-        'piece_count': piece_count,
-        'game_over': False,
-        'model_color': model_color,
-        'level': game_state['level'],
-        'can_undo': len(game_state['move_history']) > 0,
-        'can_redo': len(game_state['redo_stack']) > 0
-    }
-
-    # If model plays black, make first move
-    if game_state['model_color'] == BLACK and not game_state['game_over']:
-        return make_model_move()
-
-    return jsonify(response)
+    data = body()
+    rate_limit("new_game", Config.new_games_per_minute)
+    color = data.get("model_color", "black")
+    if color not in ("black", "white"):
+        raise ApiError("model_color must be 'black' or 'white'")
+    level = Config.default_level if data.get("level") is None else parse_level(data["level"])
+    drop_idle_games()
+    game = Game(BLACK if color == "black" else WHITE, level)
+    with GAMES_LOCK:
+        if len(GAMES) >= Config.max_games:
+            raise ApiError("the server is busy; try again later", 503)
+        GAMES[game.id] = game
+    with game.lock:
+        game.model_moves()
+        game.save()
+        return jsonify(game.state())
 
 
-@app.route('/api/make_move', methods=['POST'])
+@app.route("/api/make_move", methods=["POST"])
 def make_move():
-    """Handle human move."""
-    data = request.json
-    action = data.get('action')
-
-    if action is None:
-        return jsonify({'error': 'No action provided'}), 400
-
-    env = game_state['env']
-    if env is None:
-        return jsonify({'error': 'No game in progress'}), 400
-
-    if game_state['game_over']:
-        return jsonify({'error': 'Game is over'}), 400
-
-    # Make the move
-    try:
-        # Record move before executing
-        board_before = env.board.copy()
-        player_color = 'black' if env.player == BLACK else 'white'
-
-        # Convert action to tuple format
-        action_tuple = (0, action // 8, action % 8)
-
-        # Execute move using low-level method (bypass step)
-        # Note: get_next_state automatically switches env.player to the next player
-        board = env.board
-        board = env.get_next_state(board, action_tuple)
-        env.board = board
-
-        # Record the move in history
-        record_move(action, player_color, board_before)
-
-        game_state['last_move'] = {'action': action, 'player': 'human'}
-
-        # Check if game is over
-        winner = env.get_winner(board)
-        if winner is not None:
-            game_state['game_over'] = True
-            if winner == BLACK:
-                game_state['winner'] = 'black'
-            elif winner == WHITE:
-                game_state['winner'] = 'white'
-            else:
-                game_state['winner'] = 'draw'
-
-            return jsonify({
-                'board': board_to_list(board),
-                'game_over': True,
-                'winner': game_state['winner'],
-                'piece_count': count_pieces(board),
-                'valid_moves': [],
-                'can_undo': len(game_state['move_history']) > 0,
-                'can_redo': len(game_state['redo_stack']) > 0
-            })
-
-        # Check if next player (model) has valid moves
-        if not env.has_valid(board, env.player):
-            # Model has no valid moves - pass back to human
-            env.player = -env.player
-
-            # Check if human also has no valid moves
-            if not env.has_valid(board, env.player):
-                # Neither player has moves - game over
-                game_state['game_over'] = True
-                winner = env.get_winner(board)
-                if winner == BLACK:
-                    game_state['winner'] = 'black'
-                elif winner == WHITE:
-                    game_state['winner'] = 'white'
-                else:
-                    game_state['winner'] = 'draw'
-
-                return jsonify({
-                    'board': board_to_list(board),
-                    'game_over': True,
-                    'winner': game_state['winner'],
-                    'piece_count': count_pieces(board),
-                    'valid_moves': []
-                })
-
-            # Human has moves, model passed
-            current_player = int(env.player)
-
-            # Include probabilities since it's human's turn
-            valid_moves = get_valid_moves(env, board, include_probabilities=True)
-
-            return jsonify({
-                'board': board_to_list(board),
-                'current_player': 'black' if current_player == BLACK else 'white',
-                'valid_moves': valid_moves,
-                'piece_count': count_pieces(board),
-                'game_over': False,
-                'model_passed': True,
-                'can_undo': len(game_state['move_history']) > 0,
-                'can_redo': len(game_state['redo_stack']) > 0
-            })
-
-        # Not game over - model's turn
-        return make_model_move()
-
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+    data = body()
+    game = find_game(data.get("game_id"))
+    with game.lock:
+        game.human_move(data.get("action"))
+        game.save()
+        return jsonify(game.state())
 
 
-def make_model_move():
-    """Make model's move and return game state."""
-    env = game_state['env']
-    board = env.board
-
-    # Get valid moves for model
-    valid_moves = get_valid_moves(env, board)
-
-    if len(valid_moves) == 0:
-        # Model has no valid moves - pass to opponent
-        env.player = -env.player
-
-        # Check if opponent also has no valid moves
-        if not env.has_valid(board, env.player):
-            # Neither player has moves - game over
-            game_state['game_over'] = True
-            winner = env.get_winner(board)
-            if winner == BLACK:
-                game_state['winner'] = 'black'
-            elif winner == WHITE:
-                game_state['winner'] = 'white'
-            else:
-                game_state['winner'] = 'draw'
-
-            return jsonify({
-                'board': board_to_list(board),
-                'game_over': True,
-                'winner': game_state['winner'],
-                'piece_count': count_pieces(board),
-                'valid_moves': [],
-                'can_undo': len(game_state['move_history']) > 0,
-                'can_redo': len(game_state['redo_stack']) > 0
-            })
-        else:
-            # Only opponent has moves - return to opponent
-            current_player = int(env.player)
-
-            # Include probabilities since it's human's turn
-            opponent_valid_moves = get_valid_moves(env, board, include_probabilities=True)
-
-            return jsonify({
-                'board': board_to_list(board),
-                'current_player': 'black' if current_player == BLACK else 'white',
-                'valid_moves': opponent_valid_moves,
-                'piece_count': count_pieces(board),
-                'game_over': False,
-                'model_passed': True,
-                'can_undo': len(game_state['move_history']) > 0,
-                'can_redo': len(game_state['redo_stack']) > 0
-            })
-
-    # Model has valid moves - get model's action and analysis
-    action, analysis, info = get_model_move(env, board)
-
-    # Record move before executing
-    board_before = env.board.copy()
-    player_color = 'black' if env.player == BLACK else 'white'
-
-    # Execute model's move using low-level method (bypass step)
-    # Note: get_next_state automatically switches env.player to the next player
-    action_tuple = (0, action // 8, action % 8)
-    board = env.get_next_state(board, action_tuple)
-    env.board = board
-
-    # Record the move in history
-    record_move(action, player_color, board_before, info.get('method'))
-
-    game_state['last_move'] = {
-        'action': action,
-        'player': 'model',
-        'analysis': analysis,  # network's top move probabilities
-        **info                 # how the move was chosen; exact_score when the solver chose it
-    }
-
-    # Check if game is over
-    winner = env.get_winner(board)
-    if winner is not None:
-        game_state['game_over'] = True
-        if winner == BLACK:
-            game_state['winner'] = 'black'
-        elif winner == WHITE:
-            game_state['winner'] = 'white'
-        else:
-            game_state['winner'] = 'draw'
-
-        return jsonify({
-            'board': board_to_list(board),
-            'game_over': True,
-            'winner': game_state['winner'],
-            'piece_count': count_pieces(board),
-            'valid_moves': [],
-            'last_move': game_state['last_move']
-        })
-
-    # Check if next player (human) has valid moves
-    if not env.has_valid(board, env.player):
-        # Human has no valid moves - pass back to model
-        env.player = -env.player
-
-        # Check if model also has no valid moves
-        if not env.has_valid(board, env.player):
-            # Neither player has moves - game over
-            game_state['game_over'] = True
-            winner = env.get_winner(board)
-            if winner == BLACK:
-                game_state['winner'] = 'black'
-            elif winner == WHITE:
-                game_state['winner'] = 'white'
-            else:
-                game_state['winner'] = 'draw'
-
-            return jsonify({
-                'board': board_to_list(board),
-                'game_over': True,
-                'winner': game_state['winner'],
-                'piece_count': count_pieces(board),
-                'valid_moves': [],
-                'last_move': game_state['last_move']
-            })
-
-        # Model has moves again, human passed - recurse
-        return make_model_move()
-
-    # Game continues - human's turn
-    # Capture current player BEFORE any other operations
-    current_player = int(env.player)
-
-    # Include probabilities since it's human's turn
-    valid_moves = get_valid_moves(env, board, include_probabilities=True)
-
-    return jsonify({
-        'board': board_to_list(board),
-        'current_player': 'black' if current_player == BLACK else 'white',
-        'valid_moves': valid_moves,
-        'piece_count': count_pieces(board),
-        'game_over': False,
-        'last_move': game_state['last_move'],
-        'can_undo': len(game_state['move_history']) > 0,
-        'can_redo': len(game_state['redo_stack']) > 0
-    })
-
-
-@app.route('/api/game_state', methods=['GET'])
-def get_game_state():
-    """Get current game state."""
-    env = game_state['env']
-    if env is None:
-        return jsonify({'error': 'No game in progress'}), 400
-
-    board = env.board
-    current_player = env.player
-
-    # Include probabilities if it's human's turn
-    is_human_turn = (current_player != game_state['model_color'])
-    valid_moves = get_valid_moves(env, board, include_probabilities=is_human_turn)
-    piece_count = count_pieces(board)
-
-    return jsonify({
-        'board': board_to_list(board),
-        'current_player': 'black' if current_player == BLACK else 'white',
-        'valid_moves': valid_moves,
-        'piece_count': piece_count,
-        'game_over': game_state['game_over'],
-        'winner': game_state['winner'],
-        'model_name': game_state['model_name'],
-        'can_undo': len(game_state['move_history']) > 0,
-        'can_redo': len(game_state['redo_stack']) > 0
-    })
-
-
-@app.route('/api/undo', methods=['POST'])
+@app.route("/api/undo", methods=["POST"])
 def undo():
-    """Undo the last move."""
-    env = game_state['env']
-    if env is None:
-        return jsonify({'error': 'No game in progress'}), 400
-
-    if len(game_state['move_history']) == 0:
-        return jsonify({'error': 'No moves to undo'}), 400
-
-    # Pop last move from history
-    last_move = game_state['move_history'].pop()
-
-    # Add to redo stack
-    game_state['redo_stack'].append(last_move)
-
-    # Restore board state from before the move
-    env.board = last_move['board_before'].copy()
-
-    # Set player to the one who made the undone move
-    player_value = BLACK if last_move['player'] == 'black' else WHITE
-    env.player = player_value
-    save_game()
-
-    # Reset game over state
-    game_state['game_over'] = False
-    game_state['winner'] = None
-
-    # Get current state
-    current_player = int(env.player)
-
-    # Include probabilities if it's human's turn
-    is_human_turn = (current_player != game_state['model_color'])
-    valid_moves = get_valid_moves(env, env.board, include_probabilities=is_human_turn)
-    piece_count = count_pieces(env.board)
-
-    return jsonify({
-        'board': board_to_list(env.board),
-        'current_player': 'black' if current_player == BLACK else 'white',
-        'valid_moves': valid_moves,
-        'piece_count': piece_count,
-        'game_over': False,
-        'can_undo': len(game_state['move_history']) > 0,
-        'can_redo': len(game_state['redo_stack']) > 0
-    })
+    game = find_game(body().get("game_id"))
+    with game.lock:
+        game.undo()
+        game.save()
+        return jsonify(game.state())
 
 
-@app.route('/api/redo', methods=['POST'])
+@app.route("/api/redo", methods=["POST"])
 def redo():
-    """Redo a previously undone move."""
-    env = game_state['env']
-    if env is None:
-        return jsonify({'error': 'No game in progress'}), 400
-
-    if len(game_state['redo_stack']) == 0:
-        return jsonify({'error': 'No moves to redo'}), 400
-
-    # Pop from redo stack
-    move = game_state['redo_stack'].pop()
-
-    # Re-execute the move
-    action = move['action']
-    action_tuple = (0, action // 8, action % 8)
-
-    # Record board state before redo
-    board_before = env.board.copy()
-
-    # Execute move
-    board = env.get_next_state(env.board, action_tuple)
-    env.board = board
-
-    # Add back to history
-    game_state['move_history'].append({**move, 'board_before': board_before})
-    save_game()
-
-    # Get current state
-    current_player = int(env.player)
-
-    # Check if it's now the model's turn and game is not over
-    model_color = game_state['model_color']
-    is_model_turn = (current_player == model_color)
-
-    # Include probabilities if it's human's turn
-    valid_moves = get_valid_moves(env, board, include_probabilities=not is_model_turn)
-    piece_count = count_pieces(board)
-
-    response = {
-        'board': board_to_list(board),
-        'current_player': 'black' if current_player == BLACK else 'white',
-        'valid_moves': valid_moves,
-        'piece_count': piece_count,
-        'game_over': False,
-        'can_undo': len(game_state['move_history']) > 0,
-        'can_redo': len(game_state['redo_stack']) > 0
-    }
-
-    # If it's model's turn after redo, make model move
-    if is_model_turn:
-        return make_model_move()
-
-    return jsonify(response)
+    game = find_game(body().get("game_id"))
+    with game.lock:
+        game.redo_move()
+        game.save()
+        return jsonify(game.state())
 
 
-@app.route('/api/levels', methods=['GET'])
-def get_levels():
-    """The strength levels and the current one."""
-    levels = [{'level': n, 'description': describe(n)} for n in sorted(LEVELS)]
-    if game_state['custom_desc']:
-        levels.append({'level': 'custom', 'description': game_state['custom_desc']})
-    return jsonify({'levels': levels, 'current': game_state['level']})
+@app.route("/api/game_state", methods=["GET"])
+def game_state():
+    game = find_game(request.args.get("game_id"))
+    with game.lock:
+        return jsonify(game.state())
 
 
-@app.route('/api/set_level', methods=['POST'])
-def set_level_route():
-    """Change the model's strength; applies from its next move (also mid-game)."""
-    try:
-        set_level((request.json or {}).get('level'))
-    except (ValueError, TypeError) as e:
-        return jsonify({'error': str(e)}), 400
-    return jsonify({'level': game_state['level'], 'description': game_state['player_desc']})
+@app.route("/api/set_level", methods=["POST"])
+def set_level():
+    data = body()
+    game = find_game(data.get("game_id"))
+    level = parse_level(data.get("level"))
+    with game.lock:
+        game.level = level
+        return jsonify({"game_id": game.id, "level": level, "description": level_desc(level)})
 
 
-@app.route('/api/get_moves', methods=['GET'])
+@app.route("/api/levels", methods=["GET"])
+def levels():
+    out = [{"level": n, "description": describe(n)} for n in sorted(LEVELS)]
+    if Config.custom_player is not None:
+        out.append({"level": "custom", "description": Config.custom_desc})
+    return jsonify({"levels": out, "default": Config.default_level})
+
+
+@app.route("/api/get_moves", methods=["GET"])
 def get_moves():
-    """Get the move history."""
-    moves = []
-    for i, move in enumerate(game_state['move_history']):
-        moves.append({
-            'number': i + 1,
-            'player': move['player'],
-            'action': move['action'],
-            'notation': action_to_notation(move['action'])
-        })
-
-    return jsonify({
-        'moves': moves,
-        'total': len(moves)
-    })
+    game = find_game(request.args.get("game_id"))
+    with game.lock:
+        moves = [{"number": i + 1, "player": m["color"], "by": m["by"], "action": m["action"],
+                  "notation": notation(m["action"])} for i, m in enumerate(game.history)]
+    return jsonify({"moves": moves, "total": len(moves)})
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Web interface for Reversi')
-    parser.add_argument('-m', '--model', type=str, required=True,
-                        help='Model name to load (without .zip extension)')
-    parser.add_argument('-w', '--net-width', type=int, default=512,
-                        help='Neural network width (default: 512)')
-    parser.add_argument('-p', '--port', type=int, default=5000,
-                        help='Port to run web server (default: 5000)')
-    parser.add_argument('--host', type=str, default='127.0.0.1',
-                        help='Host to bind to (default: 127.0.0.1)')
-    parser.add_argument('--device', default='auto',
-                        help='auto (CUDA, else MPS, else CPU), or cpu / mps / cuda. For the bare network one '
-                             'position at a time the CPU is often fastest; search batches favor the GPU')
-    parser.add_argument('--search-depth', type=int, default=0,
-                        help="search this many moves deep (pruned at every level); 0 = the network's top move")
-    parser.add_argument('--search-top-k', type=int, default=3, help='moves considered at each search level')
-    parser.add_argument('--search-depth-early', type=int, default=0,
-                        help='search this deep instead while more than --early-above squares are empty')
-    parser.add_argument('--early-above', type=int, default=30)
-    parser.add_argument('--solve-empties', type=int, default=0,
-                        help='play exactly (endgame solver) with at most this many empty squares; 0 = off. '
-                             'Works with or without search')
-    parser.add_argument('--leaf-solve-empties', type=int, default=0,
-                        help='with search: score leaves with at most this many empty squares exactly')
-    parser.add_argument('--mcts-sims', type=int, default=0,
-                        help='choose moves by MCTS with this many simulations per move (instead of --search-depth)')
-    parser.add_argument('--level', type=int, default=STRONGEST, choices=sorted(LEVELS),
-                        help=f'starting strength level (util/levels.py; changeable in the page); default {STRONGEST}')
-    parser.add_argument('--strong', action='store_true',
-                        help=f'the strongest level ({STRONGEST}: --mcts-sims 800 --solve-empties 18 '
-                             '--leaf-solve-empties 16)')
-
+    parser = argparse.ArgumentParser(description="Web interface for Reversi (API: web_app_spec.md)")
+    parser.add_argument("-m", "--model", required=True, help="model name under models/ (without .zip)")
+    parser.add_argument("-p", "--port", type=int, default=5000)
+    parser.add_argument("--host", default="127.0.0.1",
+                        help="address to listen on (127.0.0.1: this machine only; for a public site keep it local "
+                             "and put a reverse proxy with TLS in front, or use 0.0.0.0 inside a container)")
+    parser.add_argument("--device", default="auto", help="auto (CUDA, else MPS, else CPU), or cpu / mps / cuda")
+    parser.add_argument("--level", type=int, default=STRONGEST, choices=sorted(LEVELS),
+                        help=f"default strength level for new games (util/levels.py); default {STRONGEST}")
+    parser.add_argument("--strong", action="store_true", help=f"default level {STRONGEST} (the strongest)")
+    parser.add_argument("--search-depth", type=int, default=0,
+                        help="custom player: negamax search this deep (pruned at every level)")
+    parser.add_argument("--search-top-k", type=int, default=3, help="custom player: moves considered per level")
+    parser.add_argument("--search-depth-early", type=int, default=0,
+                        help="custom player: search this deep while more than --early-above squares are empty")
+    parser.add_argument("--early-above", type=int, default=30)
+    parser.add_argument("--solve-empties", type=int, default=0,
+                        help="custom player: exact endgame solver at <= this many empty squares")
+    parser.add_argument("--leaf-solve-empties", type=int, default=0,
+                        help="custom player: with search/MCTS, score positions with <= this many empties exactly")
+    parser.add_argument("--mcts-sims", type=int, default=0, help="custom player: MCTS with this many simulations")
+    parser.add_argument("--no-record", action="store_true", help="don't save games to games/")
+    parser.add_argument("--max-games", type=int, default=Config.max_games, help="concurrent games kept in memory")
+    parser.add_argument("--idle-minutes", type=float, default=Config.idle_timeout / 60,
+                        help="drop a game after this long without requests")
+    parser.add_argument("--rate", type=int, default=Config.rate_per_minute,
+                        help="API requests per client address per minute")
+    parser.add_argument("--trust-proxy", action="store_true",
+                        help="behind one reverse proxy: take the client address from X-Forwarded-For")
+    parser.add_argument("--debug", action="store_true",
+                        help="Flask debug mode (interactive debugger: only allowed on 127.0.0.1/localhost)")
+    parser.add_argument("-w", "--net-width", type=int, default=512, help=argparse.SUPPRESS)   # legacy, unused
     args = parser.parse_args()
-    if args.strong:
-        args.level = STRONGEST
-    device = get_device() if args.device == 'auto' else args.device
+    if args.debug and args.host not in ("127.0.0.1", "localhost", "::1"):
+        parser.error("--debug runs an interactive debugger that executes code; only use it on localhost")
 
-    # Create environment (needed for loading model)
-    env = ReversiEnvCNN()
-
-    # Load model
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+    from sb3_contrib import MaskablePPO
+    from util.reversi import build_reversi
+    from util.util import get_device
+    device = get_device() if args.device == "auto" else args.device
     print(f"Loading model: {args.model}")
-    model = get_model(
-        file=f"models/{args.model}",
-        env=env,
-        net_width=args.net_width,
-        device=device
-    )
+    Config.model = MaskablePPO.load(f"models/{args.model}", env=build_reversi("Random"), device=device)
+    Config.model_name = args.model
+    Config.default_level = STRONGEST if args.strong else args.level
+    Config.record, Config.max_games = not args.no_record, args.max_games
+    Config.idle_timeout, Config.rate_per_minute = args.idle_minutes * 60, args.rate
 
-    if model is None:
-        print(f"Error: Could not load model models/{args.model}.zip")
-        return
-
-    game_state['model'] = model
-    game_state['model_name'] = args.model
     searching = args.search_depth or args.mcts_sims
-    custom = searching or args.solve_empties
-    if custom:
-        # explicit search options: a 'custom' player, selected at start (the levels stay available)
-        game_state['custom_player'] = SearchPlayer(
-            model, depth=args.search_depth, top_k=args.search_top_k, prune_all=True,
+    if searching or args.solve_empties:
+        Config.custom_player = SearchPlayer(
+            Config.model, depth=args.search_depth, top_k=args.search_top_k, prune_all=True,
             solve_empties=args.solve_empties, leaf_solve_empties=args.leaf_solve_empties if searching else 0,
             early_depth=args.search_depth_early, early_above=args.early_above, mcts_sims=args.mcts_sims)
-    parts = [f"MCTS {args.mcts_sims} simulations" if args.mcts_sims else
-             f"search depth {args.search_depth}" if args.search_depth else "network top move"]
-    if args.search_depth_early:
-        parts.append(f"depth {args.search_depth_early} above {args.early_above} empties")
-    if args.leaf_solve_empties and searching:
-        parts.append(f"leaf solves <= {args.leaf_solve_empties}")
-    if args.solve_empties:
-        parts.append(f"solver <= {args.solve_empties} empties")
-    if custom:
-        game_state['custom_desc'] = "custom: " + ", ".join(parts)
-        set_level('custom')
-    else:
-        set_level(args.level)
+        parts = [f"MCTS {args.mcts_sims} simulations" if args.mcts_sims else
+                 f"search depth {args.search_depth}" if args.search_depth else "network top move"]
+        if args.search_depth_early:
+            parts.append(f"depth {args.search_depth_early} above {args.early_above} empties")
+        if args.leaf_solve_empties and searching:
+            parts.append(f"leaf solves <= {args.leaf_solve_empties}")
+        if args.solve_empties:
+            parts.append(f"solver <= {args.solve_empties} empties")
+        Config.custom_desc = "custom: " + ", ".join(parts)
+        Config.default_level = "custom"
 
-    print(f"\n{'='*60}")
-    print(f"Reversi Web Interface")
-    print(f"{'='*60}")
-    print(f"Model: {args.model}")
-    print(f"Plays with: {game_state['player_desc']} (device {device})")
-    print(f"\nStarting server at http://{args.host}:{args.port}")
-    print(f"Open your browser and navigate to the URL above")
-    print(f"{'='*60}\n")
+    if args.trust_proxy:
+        from werkzeug.middleware.proxy_fix import ProxyFix
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
-    # Run Flask app
-    app.run(host=args.host, port=args.port, debug=True)
+    print(f"\n{'=' * 60}\nReversi Web Interface\n{'=' * 60}")
+    print(f"Model: {args.model} (device {device})")
+    print(f"Default player: {level_desc(Config.default_level)}")
+    print(f"Games recorded to {GAMES_DIR}" if Config.record else "Games not recorded")
+    print(f"\nStarting server at http://{args.host}:{args.port}\n{'=' * 60}\n")
+    app.run(host=args.host, port=args.port, debug=args.debug, threaded=True, use_reloader=False)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

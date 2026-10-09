@@ -537,7 +537,12 @@ second benchmark.
 default 10 = `--strong`; changeable in the page, also mid-game), from the policy sampled at temperature
 1.5 up to MCTS 800 with the solvers, and a "Show hints" checkbox (move probabilities, top policy
 moves, solver verdict). `eval_batch.py --level N` plays a level for calibration. API:
-`web_app_spec.md`.
+`web_app_spec.md`. Hardened for public use the same day (security audit in `web_app_spec.md`): games
+by unguessable `game_id` (several players at once), validated moves, generic errors, limits on games /
+idle time / request rate and size, one shared engine lock, security headers, debugger refused off
+localhost, record file names from server-made ids only (the old code put a request field in the file
+name). Rules now come from `util/search.py` (no gym env); undo takes back the person's move and the
+model's reply. Tests: `tests/test_web_play.py`.
 
 **Recording and grading games** (2026-10-09): `web_play.py` saves every game to
 `games/<start time>_<model>_model-<color>.json` (rewritten after each move, undo and redo, so the file
@@ -821,8 +826,8 @@ of the same fork (`bwanab/edax-reversi`, `src/edax_wrapper.c`) and the library p
 
 Run the suite with `./run_tests.sh` (all tests) or `./run_tests.sh <name>` for one group
 (`environment`, `scenarios`, `edge_cases`, `training`, `integration`, `bc`, `focused`,
-`training_issues`, `step`, `lr`, `features`, `resnet`, `play`, `starts`, `refresh`, `openings`, `mix`, `search`, `mcts`, `levels`, `endgame`, `egaroucid`, ...).
-The script sets `PYTHONPATH` to the project root and runs through `uv run`. All 173 tests in `tests/`
+`training_issues`, `step`, `lr`, `features`, `resnet`, `play`, `starts`, `refresh`, `openings`, `mix`, `search`, `mcts`, `levels`, `web`, `endgame`, `egaroucid`, ...).
+The script sets `PYTHONPATH` to the project root and runs through `uv run`. All 182 tests in `tests/`
 are part of the runner and pass. `test_edax_opponent.py`
 in the project root is a separate script that needs the Edax server running.
 

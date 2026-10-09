@@ -1,0 +1,170 @@
+#!/usr/bin/env python3
+"""
+Tests for web_play.py's API (Flask test client, tiny untrained network): games by id, input
+validation, undo/redo, limits, security headers, game records, and errors that hide internals.
+"""
+
+import glob
+import json
+import os
+import random
+import sys
+import tempfile
+import unittest
+
+import numpy as np
+
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
+import web_play as wp
+from util.reversi import ReversiEnvCNN
+from util.search import legal_moves, play_move
+
+
+class TestWebPlay(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        import torch
+        from util.util import get_model
+        torch.manual_seed(5)
+        with tempfile.TemporaryDirectory() as d:
+            wp.Config.model = get_model(os.path.join(d, "m"), ReversiEnvCNN(opponent="Random"), model_type="resnet",
+                                        channels=8, blocks=1)
+        wp.Config.model_name = "test"
+
+    def setUp(self):
+        wp.GAMES.clear()
+        wp.RATE.clear()
+        wp.PLAYERS.clear()
+        wp.Config.default_level, wp.Config.record = 3, False
+        wp.Config.max_games, wp.Config.idle_timeout, wp.Config.rate_per_minute = 200, 7200, 100000
+        wp.Config.new_games_per_minute = 100000
+        self.c = wp.app.test_client()
+
+    def new(self, **kw):
+        r = self.c.post('/api/new_game', json={'model_color': 'white', **kw})
+        self.assertEqual(r.status_code, 200, r.get_json())
+        return r.get_json()
+
+    def move(self, gid, action):
+        return self.c.post('/api/make_move', json={'game_id': gid, 'action': action})
+
+    def test_new_game_ids_and_separate_games(self):
+        a, b = self.new(), self.new()
+        self.assertNotEqual(a['game_id'], b['game_id'])
+        self.assertRegex(a['game_id'], wp.GAME_ID_RE)
+        r = self.move(a['game_id'], a['valid_moves'][0]['action']).get_json()
+        self.assertEqual(r['piece_count']['black'] + r['piece_count']['white'], 6)     # move + reply
+        same = self.c.get('/api/game_state', query_string={'game_id': b['game_id']}).get_json()
+        self.assertEqual(same['board'], b['board'])                                    # b untouched
+
+    def test_model_moves_first_as_black(self):
+        r = self.new(model_color='black')
+        self.assertEqual(r['last_move']['player'], 'model')
+        self.assertEqual(r['current_player'], 'white')
+        self.assertTrue(all('probability' in m for m in r['valid_moves']))
+
+    def test_rejects_bad_moves(self):
+        g = self.new()
+        gid, legal = g['game_id'], {m['action'] for m in g['valid_moves']}
+        illegal = next(a for a in range(64) if a not in legal)
+        for action in (illegal, -1, 64, '19', 19.0, True, None, [19]):
+            self.assertEqual(self.move(gid, action).status_code, 400, action)
+        self.assertEqual(self.move('A' * 24, 19).status_code, 404)                    # unknown game
+        self.assertEqual(self.move('../../etc', 19).status_code, 400)                 # malformed id
+        self.assertEqual(self.c.post('/api/make_move', data='x', content_type='text/plain').status_code, 400)
+        self.assertEqual(self.c.post('/api/new_game', json={'model_color': '../../x'}).status_code, 400)
+        self.assertEqual(self.c.post('/api/new_game', json={'level': 11}).status_code, 400)
+        self.assertEqual(self.c.post('/api/set_level', json={'game_id': gid, 'level': 0}).status_code, 400)
+
+    def test_full_game_and_rules(self):
+        random.seed(3)
+        g = self.new()
+        gid = g['game_id']
+        while not g['game_over']:
+            g = self.move(gid, random.choice(g['valid_moves'])['action']).get_json()
+        b = np.array(g['board']).reshape(64)
+        diff = int((b == 1).sum() - (b == -1).sum())
+        self.assertEqual(g['winner'], 'black' if diff > 0 else 'white' if diff < 0 else 'draw')
+        self.assertEqual(self.move(gid, 0).status_code, 400)                          # game over
+        # the history replays by the rules (passes allowed)
+        game = wp.GAMES[gid]
+        for prev, nxt in zip(game.history, game.history[1:] + [{'board_before': game.board}]):
+            sign = 1 if prev['color'] == 'black' else -1
+            self.assertIn(prev['action'], set(int(m) for m in legal_moves(prev['board_before'] * sign)))
+            after = -play_move(prev['board_before'] * sign, prev['action']) * sign
+            np.testing.assert_array_equal(after, nxt['board_before'])
+
+    def test_undo_redo(self):
+        g = self.new()
+        gid, start = g['game_id'], g['board']
+        first = g['valid_moves'][0]['action']
+        after = self.move(gid, first).get_json()
+        u = self.c.post('/api/undo', json={'game_id': gid}).get_json()
+        self.assertEqual(u['board'], start)                       # back before the person's move
+        self.assertEqual(u['current_player'], 'black')            # and it is the person's turn
+        self.assertTrue(u['can_redo'])
+        r = self.c.post('/api/redo', json={'game_id': gid}).get_json()
+        self.assertEqual(r['board'], after['board'])              # level 3 is deterministic
+        self.assertEqual(self.c.post('/api/undo', json={'game_id': gid}).status_code, 200)
+        self.assertEqual(self.c.post('/api/undo', json={'game_id': gid}).status_code, 400)   # nothing left
+
+    def test_levels(self):
+        lv = self.c.get('/api/levels').get_json()
+        self.assertEqual([l['level'] for l in lv['levels']], list(range(1, 11)))
+        g = self.new(level=1)
+        self.assertEqual(g['level'], 1)
+        r = self.c.post('/api/set_level', json={'game_id': g['game_id'], 'level': 4}).get_json()
+        self.assertEqual(r['level'], 4)
+        m = self.move(g['game_id'], g['valid_moves'][0]['action']).get_json()
+        self.assertTrue(m['last_move']['method'].startswith('level 4:'))
+
+    def test_limits(self):
+        wp.Config.max_games = 2
+        self.new(), self.new()
+        self.assertEqual(self.c.post('/api/new_game', json={}).status_code, 503)
+        wp.Config.idle_timeout = -1                                # every game is idle: dropped
+        g = self.new()
+        self.assertEqual(len(wp.GAMES), 1)
+        wp.Config.rate_per_minute = 3
+        wp.RATE.clear()
+        codes = [self.c.get('/api/game_state', query_string={'game_id': g['game_id']}).status_code for _ in range(5)]
+        self.assertEqual(codes, [200, 200, 200, 429, 429])
+        wp.Config.rate_per_minute = 100000
+        self.assertEqual(self.c.post('/api/new_game', data='x' * 10000, content_type='application/json').status_code,
+                         413)
+
+    def test_headers_and_hidden_errors(self):
+        r = self.c.get('/api/levels')
+        for h in ('Content-Security-Policy', 'X-Content-Type-Options', 'X-Frame-Options'):
+            self.assertIn(h, r.headers)
+        g = self.new()
+        original = wp.model_move
+        wp.model_move = lambda game: 1 / 0
+        try:
+            r = self.move(g['game_id'], g['valid_moves'][0]['action'])
+        finally:
+            wp.model_move = original
+        self.assertEqual(r.status_code, 500)
+        self.assertEqual(r.get_json(), {'error': 'internal error'})               # no exception text
+        self.assertEqual(self.c.get('/api/nothing').status_code, 404)
+
+    def test_game_record(self):
+        with tempfile.TemporaryDirectory() as d:
+            wp.Config.record, games_dir, wp.GAMES_DIR = True, wp.GAMES_DIR, d
+            try:
+                g = self.new()
+                self.move(g['game_id'], g['valid_moves'][0]['action'])
+                files = glob.glob(os.path.join(d, '*.json'))
+                self.assertEqual(len(files), 1)
+                self.assertNotIn(g['game_id'], os.path.basename(files[0]))         # only an id prefix
+                rec = json.load(open(files[0]))
+                self.assertEqual([m['by'] for m in rec['moves']], ['human', 'model'])
+                self.assertEqual(rec['level'], 3)
+            finally:
+                wp.GAMES_DIR = games_dir
+
+
+if __name__ == "__main__":
+    unittest.main()

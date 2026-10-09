@@ -5,6 +5,7 @@ let gameState = {
     currentPlayer: null,
     gameOver: false,
     modelColor: 'black',
+    gameId: null,      // from /api/new_game; sent with every request about this game
     lastData: null,
     showHints: loadShowHints()
 };
@@ -38,7 +39,7 @@ async function loadLevels() {
             option.title = level.description;
             select.appendChild(option);
         });
-        select.value = String(data.current);
+        select.value = String(data.default);
         updateLevelTitle();
     } catch (error) {
         showError('Could not load strength levels: ' + error.message);
@@ -56,13 +57,16 @@ function updateLevelTitle() {
 async function changeLevel() {
     const value = document.getElementById('level').value;
     updateLevelTitle();
+    if (!gameState.gameId) {
+        return;   // applies to the next new game
+    }
     try {
         const response = await fetch('/api/set_level', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ level: value === 'custom' ? 'custom' : Number(value) })
+            body: JSON.stringify({ game_id: gameState.gameId, level: value === 'custom' ? 'custom' : Number(value) })
         });
         const data = await response.json();
         if (!response.ok) {
@@ -146,7 +150,7 @@ async function startNewGame() {
 }
 
 async function handleCellClick(row, col) {
-    if (gameState.gameOver) {
+    if (gameState.gameOver || !gameState.gameId) {
         return;
     }
 
@@ -166,7 +170,7 @@ async function handleCellClick(row, col) {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ action: action })
+            body: JSON.stringify({ game_id: gameState.gameId, action: action })
         });
 
         const data = await response.json();
@@ -183,6 +187,9 @@ async function handleCellClick(row, col) {
 
 function updateGameState(data) {
     gameState.lastData = data;
+    if (data.game_id) {
+        gameState.gameId = data.game_id;
+    }
     gameState.board = data.board;
     gameState.validMoves = data.valid_moves || [];
     gameState.currentPlayer = data.current_player;
@@ -367,7 +374,8 @@ async function undoMove() {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
-            }
+            },
+            body: JSON.stringify({ game_id: gameState.gameId })
         });
 
         const data = await response.json();
@@ -388,7 +396,8 @@ async function redoMove() {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
-            }
+            },
+            body: JSON.stringify({ game_id: gameState.gameId })
         });
 
         const data = await response.json();
@@ -419,7 +428,7 @@ function updateUndoRedoButtons(data) {
 
 async function displayGameRecord() {
     try {
-        const response = await fetch('/api/get_moves');
+        const response = await fetch('/api/get_moves?game_id=' + encodeURIComponent(gameState.gameId));
         const data = await response.json();
 
         if (response.ok) {
