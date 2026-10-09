@@ -5,6 +5,9 @@ Provides visual board and click-to-move interface.
 """
 
 from flask import Flask, render_template, jsonify, request
+import json
+import os
+import time
 import numpy as np
 import torch
 import argparse
@@ -26,9 +29,12 @@ game_state = {
     'winner': None,
     'last_move': None,
     'model_name': None,
-    'move_history': [],  # List of {action, player, board_before}
-    'redo_stack': []  # Stack for redo functionality
+    'move_history': [],  # List of {action, player, board_before[, method]}
+    'redo_stack': [],  # Stack for redo functionality
+    'game_file': None,  # games/<start time>_<model>_<model color>.json, rewritten after every move
 }
+
+GAMES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'games')
 
 
 def board_to_list(board):
@@ -177,15 +183,41 @@ def count_pieces(board):
     return {'black': int(black_count), 'white': int(white_count)}
 
 
-def record_move(action, player_str, board_before):
-    """Record a move in the move history."""
+def record_move(action, player_str, board_before, method=None):
+    """Record a move in the move history (method: how the model chose it) and save the game."""
     game_state['move_history'].append({
         'action': int(action),
         'player': player_str,
-        'board_before': board_before.copy()
+        'board_before': board_before.copy(),
+        **({'method': method} if method else {})
     })
     # Clear redo stack when new move is made
     game_state['redo_stack'] = []
+    save_game()
+
+
+def save_game():
+    """Write the game as it now stands (after any undo/redo) to game_state['game_file'] as JSON:
+    every move with its square, color, who played it (model/human), the board before it (64 values,
+    1 = black, -1 = white) and, for model moves, how it was chosen; plus the final board and result.
+    For later analysis of the opponent's moves (e.g. Piccolo's), see analyze_games.py."""
+    if game_state['game_file'] is None or not game_state['move_history']:
+        return
+    env = game_state['env']
+    model_color = 'black' if game_state['model_color'] == BLACK else 'white'
+    moves = [{'square': action_to_notation(m['action']), 'action': m['action'], 'color': m['player'],
+              'by': 'model' if m['player'] == model_color else 'human',
+              'board_before': np.asarray(m['board_before']).reshape(64).astype(int).tolist(),
+              **({'method': m['method']} if m.get('method') else {})}
+             for m in game_state['move_history']]
+    final = np.asarray(env.board).reshape(64)
+    record = {'model': game_state['model_name'], 'player': game_state['player_desc'],
+              'model_color': model_color, 'moves': moves, 'final_board': final.astype(int).tolist(),
+              'black': int((final == BLACK).sum()), 'white': int((final == WHITE).sum()),
+              'finished': env.get_winner(env.board) is not None}
+    os.makedirs(GAMES_DIR, exist_ok=True)
+    with open(game_state['game_file'], 'w') as f:
+        json.dump(record, f, indent=1)
 
 
 def action_to_notation(action):
@@ -218,6 +250,8 @@ def new_game():
     game_state['last_move'] = None
     game_state['move_history'] = []
     game_state['redo_stack'] = []
+    game_state['game_file'] = os.path.join(
+        GAMES_DIR, f"{time.strftime('%Y%m%d-%H%M%S')}_{game_state['model_name']}_model-{model_color}.json")
 
     # Get initial state
     current_player = int(env.player)
@@ -416,7 +450,7 @@ def make_model_move():
     env.board = board
 
     # Record the move in history
-    record_move(action, player_color, board_before)
+    record_move(action, player_color, board_before, info.get('method'))
 
     game_state['last_move'] = {
         'action': action,
@@ -543,6 +577,7 @@ def undo():
     # Set player to the one who made the undone move
     player_value = BLACK if last_move['player'] == 'black' else WHITE
     env.player = player_value
+    save_game()
 
     # Reset game over state
     game_state['game_over'] = False
@@ -592,11 +627,8 @@ def redo():
     env.board = board
 
     # Add back to history
-    game_state['move_history'].append({
-        'action': action,
-        'player': move['player'],
-        'board_before': board_before
-    })
+    game_state['move_history'].append({**move, 'board_before': board_before})
+    save_game()
 
     # Get current state
     current_player = int(env.player)

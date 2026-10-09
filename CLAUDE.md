@@ -533,6 +533,15 @@ second benchmark.
 | 2026-10-06 | `r256x12_mid1` | `--strong` (then step-20 negamax) | 8 (Piccolo's maximum) | win |
 | 2026-10-08 | `r256x12_mid1` | `--strong` (MCTS 800, step 26) | 8 | several games from both colors, all won decisively |
 
+**Recording and grading games** (2026-10-09): `web_play.py` saves every game to
+`games/<start time>_<model>_model-<color>.json` (rewritten after each move, undo and redo, so the file
+matches the board; moves with color, who played them, the board before, how the model chose its move,
+final result). `analyze_games.py games/*.json [-v]` grades the opponent's moves with Egaroucid (level
+14, every move scored) next to the probability our policy gave them, by phase: do the opponent's
+"unlikely" moves (policy < 5%) cost discs (its mistakes) or not (a policy blind spot the search may
+not explore)? Prompted by the observation that Piccolo often plays moves the policy ranks near the
+bottom, mostly in the middlegame.
+
 Authoritative logs: `exax_pretrain_steps.doc` (25 numbered steps: exact commands and Edax win
 rates after each), `edax_train_results.csv`, `edax_bc_pretrained_training.csv` (BC curves),
 `status_summary_2026-09-23.md` (analysis and suggested next steps), `session_notes.md` (earlier
