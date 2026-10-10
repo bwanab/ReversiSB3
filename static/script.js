@@ -6,6 +6,7 @@ let gameState = {
     gameOver: false,
     modelColor: 'black',
     gameId: null,      // from /api/new_game; sent with every request about this game
+    gameName: null,    // optional label for this game (e.g. the opponent); asked at its first save
     lastData: null,
     showHints: loadShowHints()
 };
@@ -98,6 +99,7 @@ function setupEventListeners() {
     document.getElementById('save-btn').addEventListener('click', saveGame);
     document.getElementById('load-btn').addEventListener('click', () => document.getElementById('load-file').click());
     document.getElementById('load-file').addEventListener('change', loadGameFile);
+    document.getElementById('game-name').addEventListener('click', renameGame);
     const hints = document.getElementById('show-hints');
     hints.checked = gameState.showHints;
     hints.addEventListener('change', toggleHints);
@@ -196,6 +198,9 @@ function updateGameState(data) {
     }
     if (data.model_color) {
         gameState.modelColor = data.model_color;
+    }
+    if (data.game_id) {
+        showGameName(data.name || null);
     }
     gameState.board = data.board;
     gameState.validMoves = data.valid_moves || [];
@@ -314,10 +319,81 @@ function actionNotation(action) {
     return String.fromCharCode(65 + (action % 8)) + (Math.floor(action / 8) + 1);
 }
 
-// Save: download the game's moves, model color and level (GET /api/export) as a small JSON file
+// The game's name: shown above the board, asked at the first save, kept with the game on the server
+function showGameName(name) {
+    gameState.gameName = name;
+    const el = document.getElementById('game-name');
+    el.textContent = name ? `Game: ${name} ✎` : '';
+    el.hidden = !name;
+}
+
+const NAME_PATTERN = /^[\p{L}\p{N}_ .'-]{1,40}$/u;
+
+async function setGameName(name) {
+    const response = await fetch('/api/set_name', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ game_id: gameState.gameId, name: name })
+    });
+    const data = await response.json();
+    if (!response.ok) {
+        throw new Error(data.error || 'Failed to name the game');
+    }
+    showGameName(data.name);
+}
+
+// Ask for a name; returns the cleaned name, '' for none, or null if canceled
+function askName(current) {
+    const answer = prompt("Name for this game (e.g. your opponent's name):", current || '');
+    if (answer === null) {
+        return null;
+    }
+    const name = answer.trim();
+    if (name && !NAME_PATTERN.test(name)) {
+        showError("Names: up to 40 letters, digits, spaces and _ . ' -");
+        return null;
+    }
+    return name;
+}
+
+async function renameGame() {
+    if (!gameState.gameId) {
+        return;
+    }
+    const name = askName(gameState.gameName);
+    if (name === null) {
+        return;
+    }
+    try {
+        await setGameName(name);
+    } catch (error) {
+        showError(error.message);
+    }
+}
+
+// a name made safe for a file name: spaces -> _, nothing but letters, digits, _ . -
+function fileSafe(name) {
+    return name.replace(/\s+/g, '_').replace(/[^\p{L}\p{N}_.-]/gu, '');
+}
+
+// Save: download the game's moves, model color, level and name (GET /api/export) as a small JSON
+// file named reversi-<name>-m<moves>.json; the first save of an unnamed game asks for a name
 async function saveGame() {
     if (!gameState.gameId) {
         return;
+    }
+    if (!gameState.gameName) {
+        const name = askName('');
+        if (name) {
+            try {
+                await setGameName(name);
+            } catch (error) {
+                showError(error.message);
+                return;
+            }
+        }
     }
     try {
         const response = await fetch('/api/export?game_id=' + encodeURIComponent(gameState.gameId));
@@ -326,11 +402,12 @@ async function saveGame() {
             showError(data.error || 'Failed to save the game');
             return;
         }
-        const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '-');
+        const moveNumber = String(data.move_number).padStart(2, '0');
+        const label = data.name ? fileSafe(data.name) : '';
         const blob = new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' });
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
-        link.download = `reversi-${stamp}.json`;
+        link.download = label ? `reversi-${label}-m${moveNumber}.json` : `reversi-m${moveNumber}.json`;
         document.body.appendChild(link);
         link.click();
         link.remove();
@@ -340,8 +417,23 @@ async function saveGame() {
     }
 }
 
-// Load: a saved file continues with its own model color and level; a plain move list (e.g. f5d6c3)
-// uses the color and level chosen in the controls
+// The game name in a file name: reversi-<name>-m<NN>.json (browsers may add " (1)"), or for a move
+// list in a text file, the file's own name; older saves (reversi-<date>-<time>.json) have none
+function nameFromFileName(fileName) {
+    const base = fileName.replace(/\s*\(\d+\)(?=\.[^.]*$)/, '');
+    const saved = base.match(/^reversi-(.+)-m\d+\.json$/i);
+    if (saved) {
+        return saved[1].replace(/_/g, ' ');
+    }
+    if (/^reversi-(m\d+|\d{8}-\d{4})\.json$/i.test(base)) {
+        return null;
+    }
+    const plain = base.match(/^(.+)\.txt$/i);
+    return plain ? plain[1].replace(/_/g, ' ') : null;
+}
+
+// Load: a saved file continues with its own model color, level and name; a plain move list
+// (e.g. f5d6c3) uses the color and level chosen in the controls
 async function loadGameFile(event) {
     const file = event.target.files[0];
     event.target.value = '';             // allow loading the same file again
@@ -359,7 +451,7 @@ async function loadGameFile(event) {
         if (!saved || typeof saved.moves === 'undefined') {
             throw new Error('not a saved game');
         }
-        request = { moves: saved.moves, model_color: saved.model_color, level: saved.level };
+        request = { moves: saved.moves, model_color: saved.model_color, level: saved.level, name: saved.name };
     } catch (e) {
         const levelValue = document.getElementById('level').value;
         request = {
@@ -367,6 +459,10 @@ async function loadGameFile(event) {
             model_color: document.getElementById('model-color').value,
             level: levelValue === '' ? null : (levelValue === 'custom' ? 'custom' : Number(levelValue))
         };
+    }
+    if (!request.name) {
+        const fromFile = nameFromFileName(file.name);
+        request.name = fromFile && NAME_PATTERN.test(fromFile) ? fromFile : null;
     }
     try {
         const response = await fetch('/api/load_game', {

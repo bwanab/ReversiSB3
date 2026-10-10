@@ -60,11 +60,18 @@ model move's `method` starts with its level (e.g. `level 7: MCTS 100 simulations
 - **Model plays as**: black or white, for the next new game.
 - **Strength**: the level (1-10, or Custom); sent with "New Game", and changes during a game apply to
   that game from the model's next move.
-- **Save game**: downloads the game as a small JSON file (`reversi-<date>-<time>.json`, see
-  `/api/export`), e.g. to continue a long game against a person elsewhere after a wait.
-- **Load game**: continues a saved file (with its own model color and level), or a plain move list
-  such as `f5d6c3d3` in a `.txt` file (the model takes the color and level chosen in the controls).
-  Loading starts a new game (new id) at that position; if it is the model's turn, it moves.
+- **Save game**: downloads the game as a small JSON file (see `/api/export`), e.g. to continue a long
+  game against a person elsewhere after a wait. The first save of a game asks for a **name** (e.g.
+  the opponent's; Cancel saves without one and asks again next time). The file is
+  `reversi-<name>-m<NN>.json`, NN = moves played so far (e.g. `reversi-Alice-m23.json`), or
+  `reversi-m<NN>.json` without a name; spaces in the name become `_`.
+- **Game name**: shown under the turn indicator ("Game: Alice ✎"); click it to rename. It stays with the
+  game (later saves reuse it); New Game starts unnamed.
+- **Load game**: continues a saved file (with its own model color, level and name), or a plain move
+  list such as `f5d6c3d3` in a `.txt` file (the model takes the color and level chosen in the
+  controls). Loading starts a new game (new id) at that position; if it is the model's turn, it moves.
+  The name comes from inside the file, else from the file name (`reversi-<name>-m<NN>.json`, ignoring a
+  browser's " (1)"; for a `.txt` file its name without the extension).
 - **Show hints**: shows or hides the model's move probabilities on your candidate moves, its list of
   top policy moves, and the solver's verdict ("model wins by N with perfect play"). Display only: the
   server always sends them. Remembered per browser (`localStorage`).
@@ -113,6 +120,8 @@ model move's `method` starts with its level (e.g. `level 7: MCTS 100 simulations
   "can_undo": true,
   "can_redo": false,
   "model_moves": [37],
+  "name": "Alice",
+  "move_number": 12,
   "last_move": { ... },
   "model_passed": true
 }
@@ -133,6 +142,7 @@ model move's `method` starts with its level (e.g. `level 7: MCTS 100 simulations
   `MCTS N simulations`, `search depth N` or `solver (N empty)`, prefixed with the level unless the
   custom player is used. `exact_score`: with the solver, the final disc difference for the model with
   perfect play. After an undo, `last_move` is the model's latest remaining move, without `analysis`.
+- `name`: the game's name, or `null`. `move_number`: moves played so far (both sides).
 - `model_moves`: the model's moves since the person's last move, in the order played. Usually one; two
   or more when the person had to pass in between (the page then colors the earlier ones amber and
   numbers all of them 1, 2, ...). Empty after an undo.
@@ -178,7 +188,7 @@ redo list. Response: the state.
 ### `POST /api/load_game`
 
 Request: `{"moves": "f5d6c3..." | ["f5", "d6", ...] | [37, 43, ...], "model_color": "black" | "white",
-"level": 1-10 | "custom"}` (`model_color` and `level` optional, as in `new_game`). A new game replaying
+"level": 1-10 | "custom", "name": "Alice"}` (`model_color`, `level` and `name` optional). A new game replaying
 the moves from the standard start: each move must be legal for the side to move; passes are inferred
 (when the side to move has no legal move, the other side moves). Square names are case-insensitive;
 spaces, commas, dashes and dots between them are ignored; at most 60 moves. If the model is then to
@@ -191,11 +201,18 @@ What the page saves:
 
 ```json
 {"format": "reversisb3-game", "version": 1, "moves": "f5d6c3d3c4", "model_color": "black",
- "level": 10, "model": "r256x12_mid1_CNN_test", "saved": "2026-10-09 15:30:12",
- "black": 7, "white": 2, "finished": false}
+ "level": 10, "name": "Alice", "move_number": 5, "model": "r256x12_mid1_CNN_test",
+ "saved": "2026-10-09 15:30:12", "black": 7, "white": 2, "finished": false}
 ```
 
-`moves`, `model_color` and `level` are what `load_game` needs; the rest is for reading the file.
+`moves`, `model_color`, `level` and `name` are what `load_game` needs; the rest is for reading the file.
+
+### `POST /api/set_name`
+
+Request: `{"game_id": "...", "name": "Alice"}`; `""` or `null` removes the name. Names: up to 40
+letters (any script), digits, spaces and `_ . ' -`; leading and trailing spaces are dropped. Response:
+`{"game_id": "...", "name": "Alice"}`. The name is shown, saved, and written to the game record; it is
+never used in a server file name.
 
 ### `GET /api/game_state?game_id=...`
 
@@ -239,6 +256,7 @@ undo are not kept):
 ```json
 {
   "model": "r256x12_mid1_CNN_test",
+  "name": "Alice",
   "player": "level 10: MCTS 800 simulations, leaf solves <= 16, solver <= 18 empties",
   "level": 10,
   "model_color": "black",

@@ -293,6 +293,29 @@ class TestWebPlay(unittest.TestCase):
         self.assertEqual(r['winner'], g['winner'])
         self.assertEqual(self.load(saved['moves'] + 'a1').status_code, 400)  # no moves after the end
 
+    def test_game_names(self):
+        g = self.new()
+        gid = g['game_id']
+        self.assertIsNone(g['name'])
+        for good in ('Alice', 'José María', "O'Brien-2", 'game.3'):
+            r = self.c.post('/api/set_name', json={'game_id': gid, 'name': good})
+            self.assertEqual(r.get_json()['name'], good)
+        for bad in ('../etc/passwd', 'a/b', '<script>', 'x' * 41, 5, ['a'], '   '):
+            self.assertEqual(self.c.post('/api/set_name', json={'game_id': gid, 'name': bad}).status_code, 400, bad)
+        self.c.post('/api/set_name', json={'game_id': gid, 'name': '  Bob  '})
+        state = self.c.get('/api/game_state', query_string={'game_id': gid}).get_json()
+        self.assertEqual((state['name'], state['move_number']), ('Bob', 0))
+        r = self.move(gid, g['valid_moves'][0]['action']).get_json()
+        self.assertEqual((r['name'], r['move_number']), ('Bob', 2))                   # kept across moves
+        saved = self.c.get('/api/export', query_string={'game_id': gid}).get_json()
+        self.assertEqual((saved['name'], saved['move_number']), ('Bob', 2))
+        loaded = self.load(saved['moves'], model_color=saved['model_color'], name=saved['name']).get_json()
+        self.assertEqual(loaded['name'], 'Bob')
+        self.assertEqual(self.load('f5', name='a/b').status_code, 400)
+        self.assertIsNone(self.new()['name'])                                         # new games start unnamed
+        self.c.post('/api/set_name', json={'game_id': gid, 'name': ''})              # cleared
+        self.assertIsNone(self.c.get('/api/game_state', query_string={'game_id': gid}).get_json()['name'])
+
     def test_game_record(self):
         with tempfile.TemporaryDirectory() as d:
             wp.Config.record, games_dir, wp.GAMES_DIR = True, wp.GAMES_DIR, d
@@ -305,6 +328,8 @@ class TestWebPlay(unittest.TestCase):
                 rec = json.load(open(files[0]))
                 self.assertEqual([m['by'] for m in rec['moves']], ['human', 'model'])
                 self.assertEqual(rec['level'], 3)
+                self.c.post('/api/set_name', json={'game_id': g['game_id'], 'name': 'Carol'})
+                self.assertEqual(json.load(open(files[0]))['name'], 'Carol')
             finally:
                 wp.GAMES_DIR = games_dir
 

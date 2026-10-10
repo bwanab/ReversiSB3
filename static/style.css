@@ -158,6 +158,21 @@ select:focus {
     margin-bottom: 10px;
 }
 
+/* the game's name (several games at once); click to rename */
+.game-name {
+    display: block;
+    margin: 6px auto 0;
+    background: none;
+    border: none;
+    color: #2b6cb0;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.game-name:hover {
+    text-decoration: underline;
+}
+
 #turn-text {
     font-weight: 600;
     color: #2d3748;

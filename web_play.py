@@ -41,6 +41,7 @@ GAMES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "games")
 GAME_ID_RE = re.compile(r"^[A-Za-z0-9_-]{16,64}$")
 SQUARE_RE = re.compile(r"[a-hA-H][1-8]")
 SAVE_FORMAT = "reversisb3-game"
+NAME_RE = re.compile(r"[\w .'-]{1,40}")         # game names: letters (any script), digits, space _ . ' -
 
 
 class Config:
@@ -110,6 +111,15 @@ def parse_moves(value):
     return actions
 
 
+def parse_name(value):
+    """A game's name (e.g. the opponent's), or None to clear it."""
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str) or not NAME_RE.fullmatch(value.strip()) or not value.strip():
+        raise ApiError("name: up to 40 letters, digits, spaces and _ . ' -")
+    return value.strip()
+
+
 def parse_level(value):
     if value == "custom" and Config.custom_player is not None:
         return "custom"
@@ -130,6 +140,7 @@ class Game:
     def __init__(self, model_color, level, game_id=None):
         self.id = game_id or secrets.token_urlsafe(18)
         self.model_color, self.level = model_color, level
+        self.name = None              # optional label, e.g. the opponent's name (several games at once)
         self.board = np.zeros(64, dtype=np.int8)
         self.board[[27, 36]], self.board[[28, 35]] = WHITE, BLACK
         self.to_move = BLACK
@@ -147,7 +158,7 @@ class Game:
                 "moves": [[m["action"], 1 if m["color"] == "black" else -1, m["by"], m.get("method")]
                           for m in self.history],
                 "redo": self.redo, "last_move": self.last_move, "model_passed": self.model_passed,
-                "model_sequence": self.model_sequence}
+                "model_sequence": self.model_sequence, "name": self.name}
 
     @classmethod
     def from_dict(cls, d):
@@ -159,6 +170,7 @@ class Game:
         game.started, game.redo = d["started"], list(d["redo"])
         game.last_move, game.model_passed = d["last_move"], d["model_passed"]
         game.model_sequence = list(d.get("model_sequence", []))
+        game.name = d.get("name")
         return game
 
     @property
@@ -248,7 +260,8 @@ class Game:
                "piece_count": {"black": int((self.board == BLACK).sum()), "white": int((self.board == WHITE).sum())},
                "game_over": self.over, "winner": self.winner, "model_color": COLOR_NAME[self.model_color],
                "level": self.level, "can_undo": any(m["by"] == "human" for m in self.history),
-               "can_redo": bool(self.redo) and not self.over, "model_moves": self.model_sequence}
+               "can_redo": bool(self.redo) and not self.over, "model_moves": self.model_sequence,
+               "name": self.name, "move_number": len(self.history)}
         if self.last_move:
             out["last_move"] = self.last_move
         if self.model_passed:
@@ -262,7 +275,7 @@ class Game:
         moves = [{"square": notation(m["action"]), "action": m["action"], "color": m["color"], "by": m["by"],
                   "board_before": m["board_before"].astype(int).tolist(),
                   **({"method": m["method"]} if m.get("method") else {})} for m in self.history]
-        record = {"model": Config.model_name, "player": level_desc(self.level), "level": self.level,
+        record = {"model": Config.model_name, "name": self.name, "player": level_desc(self.level), "level": self.level,
                   "model_color": COLOR_NAME[self.model_color], "moves": moves,
                   "final_board": self.board.astype(int).tolist(), "black": int((self.board == BLACK).sum()),
                   "white": int((self.board == WHITE).sum()), "finished": self.over}
@@ -432,7 +445,9 @@ def load_game():
         raise ApiError("model_color must be 'black' or 'white'")
     level = Config.default_level if data.get("level") is None else parse_level(data["level"])
     actions = parse_moves(data.get("moves", ""))
+    name = parse_name(data.get("name"))
     game = Game(BLACK if color == "black" else WHITE, level)
+    game.name = name
     for i, action in enumerate(actions):
         if game.over:
             raise ApiError(f"the game is already over before move {i + 1}")
@@ -452,7 +467,8 @@ def export_game():
     with open_game(game_id_of(request.args.get("game_id")), write=False) as game:
         return jsonify({"format": SAVE_FORMAT, "version": 1,
                         "moves": "".join(notation(m["action"]).lower() for m in game.history),
-                        "model_color": COLOR_NAME[game.model_color], "level": game.level,
+                        "model_color": COLOR_NAME[game.model_color], "level": game.level, "name": game.name,
+                        "move_number": len(game.history),
                         "model": Config.model_name, "saved": time.strftime("%Y-%m-%d %H:%M:%S"),
                         "black": int((game.board == BLACK).sum()), "white": int((game.board == WHITE).sum()),
                         "finished": game.over})
@@ -484,6 +500,16 @@ def redo():
 def game_state():
     with open_game(game_id_of(request.args.get("game_id")), write=False) as game:
         return jsonify(game.state())
+
+
+@app.route("/api/set_name", methods=["POST"])
+def set_name():
+    """Name (or rename, or with "" unname) a game, e.g. after the opponent, to tell several apart."""
+    data = body()
+    gid, name = game_id_of(data.get("game_id")), parse_name(data.get("name"))
+    with open_game(gid) as game:
+        game.name = name
+        return jsonify({"game_id": game.id, "name": name})
 
 
 @app.route("/api/set_level", methods=["POST"])
