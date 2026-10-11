@@ -333,7 +333,7 @@ async function fetchScores(gameId, moveNumber) {
             const score = document.createElement('div');
             score.className = 'move-score' + (entry.best ? ' best-score' : '');
             const value = data.exact ? String(entry.score) : String(Math.round(entry.score));
-            score.textContent = (data.exact ? '' : '~') + (entry.score > 0 ? '+' : '') + value;
+            score.textContent = (entry.score > 0 ? '+' : '') + value;
             cell.classList.toggle('with-probability', showProbabilities());
             cell.appendChild(score);
         });

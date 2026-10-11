@@ -79,7 +79,7 @@ model move's `method` starts with its level (e.g. `level 7: MCTS 100 simulations
   - *Scores*: the expected final disc margin, for you, of each of your candidate moves, like the move
     scores of Edax, Egaroucid or Kifubox (+2 = you should win by about 2 with best play from there).
     Exact (endgame solver) with at most 18 empty squares; before that estimated by an MCTS search
-    (shown with `~`). The best move's score is green. Fetched from `/api/scores` on your turn
+    (rounded to whole discs). The best move's score is green. Fetched from `/api/scores` on your turn
     (about the cost of one model move; cached per position). The line under the turn indicator says
     which kind they are.
   - *Both*: score above, probability below.
