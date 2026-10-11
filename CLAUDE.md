@@ -564,13 +564,16 @@ second benchmark.
 | 2026-10-06 | `r256x12_mid1` | `--strong` (then step-20 negamax) | 8 (Piccolo's maximum) | win |
 | 2026-10-08 | `r256x12_mid1` | `--strong` (MCTS 800, step 26) | 8 | several games from both colors, all won decisively |
 
-**Kifubox (iOS app)**, by hand via `web_play.py`:
+**Kifubox (iOS app)**, by hand via `web_play.py`. Kifubox doesn't play itself: it shows a score for every
+legal move of either side (apparently the expected final disc margin with best play, like Edax's and
+Egaroucid's scores: e.g. +2 best ... -25 worst in a balanced middlegame, -15 ... -40 in a lost one); the
+opponent's moves were always Kifubox's top-scored move at the given level:
 
 | Date | Model | `web_play.py` config | Kifubox level | Result |
 |---|---|---|---|---|
 | 2026-10-11 | `r256x12_mid1` | `--strong` (level 10: MCTS 800, early stop, solvers) | 11 | win (1 game) |
 
-Observed: Kifubox (level 11) mostly played the moves our policy rated highest (the page's hints), and
+Observed: Kifubox's top move (level 11) was mostly the move our policy rated highest (the page's hints), and
 where it deviated, always to a close alternative; Piccolo often played moves the policy rated near the
 bottom (mostly middlegame). I.e. Kifubox plays in the style of strong engines/experts; games against it
 are decided among near-equal moves. `analyze_games.py` on each app's saved games can quantify this
