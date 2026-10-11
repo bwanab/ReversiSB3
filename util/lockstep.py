@@ -73,3 +73,31 @@ def play_vs_edax(choose_many, starts, edax_depth, client=None, on_model_move=Non
                 move = client.analyze(boards[i].reshape(8, 8), depth=edax_depth)["move"]
                 boards[i] = play_move(boards[i], move)
                 model_to_move[i] = True
+
+
+def play_match(choose_a, choose_b, starts):
+    """Player A vs player B from each start twice, colors swapped (A to move first, then B), all games
+    in lockstep: each step, one choose_a() call for every game where A is to move and one choose_b()
+    call for the rest. Returns the final disc differences from A's view (> 0 A won), first the games
+    A started, then those B started."""
+    boards = [np.asarray(b, dtype=np.int8).reshape(64).copy() for b in starts] * 2
+    a_to_move = [True] * len(starts) + [False] * len(starts)
+    result = [None] * len(boards)
+    while True:
+        for i, b in enumerate(boards):              # passes and finished games
+            while result[i] is None and len(legal_moves(boards[i])) == 0:
+                b = boards[i]
+                if len(legal_moves(-b)) == 0:
+                    diff = int((b == 1).sum() - (b == -1).sum())
+                    result[i] = diff if a_to_move[i] else -diff
+                else:
+                    boards[i], a_to_move[i] = -b, not a_to_move[i]
+        live = [i for i in range(len(boards)) if result[i] is None]
+        if not live:
+            return np.array(result)
+        groups = [([i for i in live if a_to_move[i]], choose_a), ([i for i in live if not a_to_move[i]], choose_b)]
+        for group, choose in groups:                # groups fixed before anyone moves this step
+            if group:
+                for i, m in zip(group, choose([boards[i] for i in group])):
+                    boards[i] = play_move(boards[i], int(m))
+                    a_to_move[i] = not a_to_move[i]

@@ -37,6 +37,7 @@ def run_all_tests():
     from test_mcts import TestMCTS, TestPolicyValue
     from test_levels import TestLevels
     from test_web_play import TestWebPlay, TestWebPlayRedis
+    from test_match import TestMatch, TestHints
     from test_egaroucid import TestEgaroucidClient
 
     # Create test suite
@@ -80,6 +81,8 @@ def run_all_tests():
         TestLevels,
         TestWebPlay,
         TestWebPlayRedis,
+        TestMatch,
+        TestHints,
         TestEgaroucidClient
     ]
     
@@ -156,6 +159,7 @@ def run_specific_test(test_name):
         'mcts': 'test_mcts',
         'levels': 'test_levels',
         'web': 'test_web_play',
+        'match': 'test_match',
         'egaroucid': 'test_egaroucid',
     }
     

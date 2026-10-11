@@ -63,7 +63,7 @@ class Config:
 
 ENGINE_LOCK = threading.Lock()    # model moves and probabilities are computed one at a time (per instance)
 PLAYERS = {}                      # level -> player, created on first use (under ENGINE_LOCK)
-SCORER = {}                       # the MCTS used for estimated move scores (under ENGINE_LOCK)
+SCORER = {}                       # util.hints.MoveScorer for the score hints (under ENGINE_LOCK)
 STORE = MemoryStore()             # games and rate-limit counters (web_store.py); main() may switch to Redis
 
 
@@ -263,31 +263,12 @@ class Game:
         if self.scores and self.scores.get("position") == self.position_key():
             return self.scores
         flat = self.board * self.to_move
-        legal = [int(m) for m in legal_moves(flat)]
-        children = [play_move(flat, m) for m in legal]          # each from the opponent's view
-        empties = int((flat == 0).sum())
         with ENGINE_LOCK:
-            if empties <= Config.score_solve_empties:
-                from util.endgame import solve_many
-                margins = {m: float(-s) for m, (s, _, _) in zip(legal, solve_many(children))}
-                method, exact = "exact (endgame solver)", True
-            else:
-                from util.mcts import MCTS
-                from util.search import policy_value, value_evaluator
-                if "mcts" not in SCORER:
-                    SCORER["mcts"] = MCTS(lambda bs: policy_value(Config.model, bs), sims=Config.score_sims,
-                                          early_stop=False, leaf_solve_empties=16)
-                    SCORER["value"] = value_evaluator(Config.model)
-                mcts = SCORER["mcts"]
-                mcts.run([flat])
-                root = mcts.last_roots[0]
-                child_values = SCORER["value"](np.array(children))
-                margins = {}
-                for i, m in enumerate(legal):
-                    j = int(np.flatnonzero(root.moves == m)[0])
-                    q = root.w[j] / root.n[j] if root.n[j] > 0 else -float(child_values[i])
-                    margins[m] = float(16 * np.arctanh(np.clip(q, -0.999, 0.999)))
-                method, exact = f"estimated (MCTS {Config.score_sims} simulations)", False
+            if "scorer" not in SCORER:
+                from util.hints import MoveScorer
+                SCORER["scorer"] = MoveScorer(Config.model, Config.score_sims, Config.score_solve_empties)
+            margins, exact = SCORER["scorer"].margins([flat])[0]
+        method = "exact (endgame solver)" if exact else f"estimated (MCTS {Config.score_sims} simulations)"
         best = max(margins.values())
         self.scores = {"position": self.position_key(), "move_number": len(self.history), "method": method,
                        "exact": exact,
