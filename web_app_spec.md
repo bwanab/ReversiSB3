@@ -341,5 +341,6 @@ then shared, any instance can serve any request, and instances can scale to zero
 - Instance disks are temporary: use `--no-record`, or collect `games/` from an always-on host.
 
 Speed without a GPU (measured, one game, M4 Max CPU, 12 threads): level 7 ~0.5 s per move, level 9
-~1.3 s, level 10 ~1.8 s; MPS (GPU) is ~2-2.7x faster. Typical cloud CPUs are slower per core. Many
+~1.3 s, level 10 ~1.8 s; MPS (GPU) is ~2-2.7x faster. On an M1 (by hand, 2026-10-11): level 10 plays
+reasonably fast; score hints add ~1-2 s per turn until the endgame, where the solver makes them quick. Typical cloud CPUs are slower per core. Many
 simultaneous players at high levels queue for each instance's engine.

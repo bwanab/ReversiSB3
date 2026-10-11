@@ -603,6 +603,8 @@ the name comes back on load (from inside the file, else its file name), to keep 
 Score hints (2026-10-11): the Hints selector (Off / Probabilities / Scores / Both) can show each of the
 person's moves' expected final disc margin like Kifubox/Edax (`/api/scores`): exact with <= 18 empty
 squares (solver), else from one MCTS 400 search (each move's average value -> 16 x atanh -> discs).
+On the M1 (2026-10-11, by hand): level 10 plays reasonably fast; score hints add ~1-2 s per turn until
+the endgame (then the solver makes them quick).
 
 **Recording and grading games** (2026-10-09): `web_play.py` saves every game to
 `games/<start time>_<model>_model-<color>.json` (rewritten after each move, undo and redo, so the file
