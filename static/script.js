@@ -8,16 +8,29 @@ let gameState = {
     gameId: null,      // from /api/new_game; sent with every request about this game
     gameName: null,    // optional label for this game (e.g. the opponent); asked at its first save
     lastData: null,
-    showHints: loadShowHints()
+    hintMode: loadHintMode()
 };
 
-// "Show hints": the network's move probabilities and the solver's verdict; remembered per browser
-function loadShowHints() {
+// Hints: 'off', 'probabilities' (the network's move probabilities, its top moves, the solver's
+// verdict), 'scores' (expected final margin of each of your moves) or 'both'; remembered per browser
+function loadHintMode() {
     try {
-        return localStorage.getItem('showHints') !== 'false';
+        const mode = localStorage.getItem('hintMode');
+        if (['off', 'probabilities', 'scores', 'both'].includes(mode)) {
+            return mode;
+        }
+        return localStorage.getItem('showHints') === 'false' ? 'off' : 'probabilities';   // older setting
     } catch (e) {
-        return true;
+        return 'probabilities';
     }
+}
+
+function showProbabilities() {
+    return gameState.hintMode === 'probabilities' || gameState.hintMode === 'both';
+}
+
+function showScores() {
+    return gameState.hintMode === 'scores' || gameState.hintMode === 'both';
 }
 
 // Initialize board on page load
@@ -78,10 +91,10 @@ async function changeLevel() {
     }
 }
 
-function toggleHints() {
-    gameState.showHints = document.getElementById('show-hints').checked;
+function changeHintMode() {
+    gameState.hintMode = document.getElementById('hint-mode').value;
     try {
-        localStorage.setItem('showHints', String(gameState.showHints));
+        localStorage.setItem('hintMode', gameState.hintMode);
     } catch (e) {
         // not stored; the setting still applies to this page
     }
@@ -100,9 +113,9 @@ function setupEventListeners() {
     document.getElementById('load-btn').addEventListener('click', () => document.getElementById('load-file').click());
     document.getElementById('load-file').addEventListener('change', loadGameFile);
     document.getElementById('game-name').addEventListener('click', renameGame);
-    const hints = document.getElementById('show-hints');
-    hints.checked = gameState.showHints;
-    hints.addEventListener('change', toggleHints);
+    const hints = document.getElementById('hint-mode');
+    hints.value = gameState.hintMode;
+    hints.addEventListener('change', changeHintMode);
 }
 
 function initializeBoard() {
@@ -232,6 +245,12 @@ function updateGameState(data) {
     // Update undo/redo button states
     updateUndoRedoButtons(data);
 
+    // Move scores (fetched separately: they cost about one model move)
+    document.getElementById('score-info').textContent = '';
+    if (showScores() && !gameState.gameOver && gameState.validMoves.length > 0 && data.game_id) {
+        fetchScores(data.game_id, data.move_number);
+    }
+
     // Check for game over
     if (gameState.gameOver) {
         showGameOver(data.winner, data.piece_count);
@@ -254,7 +273,7 @@ function renderBoard(board) {
         cell.innerHTML = '';
 
         // Remove highlighting classes
-        cell.classList.remove('valid-move', 'last-move', 'model-sequence');
+        cell.classList.remove('valid-move', 'last-move', 'model-sequence', 'with-probability');
 
         // Add piece if present
         if (value === 1) {
@@ -279,7 +298,7 @@ function highlightValidMoves() {
             cell.classList.add('valid-move');
 
             // If probability is available (and hints are on), display it on the cell
-            if (gameState.showHints && move.probability !== undefined) {
+            if (showProbabilities() && move.probability !== undefined) {
                 const probText = document.createElement('div');
                 probText.className = 'move-probability';
                 probText.textContent = `${(move.probability * 100).toFixed(1)}%`;
@@ -287,6 +306,41 @@ function highlightValidMoves() {
             }
         }
     });
+}
+
+// Expected final margin of each of the person's moves (GET /api/scores), drawn on the move squares
+async function fetchScores(gameId, moveNumber) {
+    const info = document.getElementById('score-info');
+    info.textContent = 'Computing move scores…';
+    try {
+        const response = await fetch('/api/scores?game_id=' + encodeURIComponent(gameId));
+        const data = await response.json();
+        if (gameState.gameId !== gameId || !gameState.lastData || gameState.lastData.move_number !== moveNumber
+                || !showScores()) {
+            return;                                   // the position changed meanwhile
+        }
+        if (!response.ok) {
+            info.textContent = '';
+            showError(data.error || 'Failed to get move scores');
+            return;
+        }
+        info.textContent = `Move scores: final disc margin, ${data.method}`;
+        data.scores.forEach(entry => {
+            const cell = document.querySelector(`[data-action="${entry.action}"]`);
+            if (!cell || !cell.classList.contains('valid-move')) {
+                return;
+            }
+            const score = document.createElement('div');
+            score.className = 'move-score' + (entry.best ? ' best-score' : '');
+            const value = data.exact ? String(entry.score) : String(Math.round(entry.score));
+            score.textContent = (data.exact ? '' : '~') + (entry.score > 0 ? '+' : '') + value;
+            cell.classList.toggle('with-probability', showProbabilities());
+            cell.appendChild(score);
+        });
+    } catch (error) {
+        info.textContent = '';
+        showError('Network error: ' + error.message);
+    }
 }
 
 function highlightLastMove(action) {
@@ -525,7 +579,7 @@ function updateLastMoveDisplay(lastMove, modelMoves = []) {
     displayText += `${player}: ${colLetter}${rowNumber}`;
 
     // If model move with analysis, show top move probabilities
-    if (gameState.showHints && lastMove.player === 'model' && lastMove.analysis && lastMove.analysis.length > 0) {
+    if (showProbabilities() && lastMove.player === 'model' && lastMove.analysis && lastMove.analysis.length > 0) {
         displayText += '\n';
         const moveProbabilities = lastMove.analysis.map(move => {
             const percentage = (move.probability * 100).toFixed(1);
@@ -538,7 +592,7 @@ function updateLastMoveDisplay(lastMove, modelMoves = []) {
     // How the model chose (network / search / solver), and the solver's exact verdict
     if (lastMove.player === 'model' && lastMove.method) {
         displayText += `\nChosen by: ${lastMove.method}`;
-        if (gameState.showHints && lastMove.exact_score !== undefined) {
+        if (gameState.hintMode !== 'off' && lastMove.exact_score !== undefined) {
             const s = lastMove.exact_score;
             displayText += s > 0 ? ` (model wins by ${s} with perfect play)`
                          : s < 0 ? ` (model loses by ${-s} with perfect play)` : ' (draw with perfect play)';

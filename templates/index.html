@@ -28,10 +28,13 @@
                     <select id="level" title="Model strength, 1 (weakest) to 10 (strongest); changes apply from the model's next move"></select>
                 </div>
                 <div class="control-group">
-                    <label for="show-hints">
-                        <input type="checkbox" id="show-hints" checked>
-                        Show hints
-                    </label>
+                    <label for="hint-mode">Hints:</label>
+                    <select id="hint-mode" title="Probabilities: what the network expects to be played. Scores: expected final disc margin of each of your moves (exact near the end, estimated before)">
+                        <option value="off">Off</option>
+                        <option value="probabilities">Probabilities</option>
+                        <option value="scores">Scores</option>
+                        <option value="both">Both</option>
+                    </select>
                 </div>
                 <button id="new-game-btn" class="btn btn-primary">New Game</button>
                 <div class="control-group">
@@ -64,6 +67,7 @@
                 <div id="turn-indicator" class="turn-indicator">
                     <span id="turn-text">Click "New Game" to start</span>
                     <button id="game-name" class="game-name" title="Rename this game" hidden></button>
+                    <div id="score-info" class="score-info"></div>
                 </div>
                 <div id="game-status" class="game-status"></div>
             </div>

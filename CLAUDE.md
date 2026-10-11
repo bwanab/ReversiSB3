@@ -600,6 +600,9 @@ game" continues such a file or any move list like `f5d6c3` (`/api/load_game`, ev
 passes inferred), for long games against people elsewhere. Games can be named (asked at the first save,
 shown above the board, click to rename; `/api/set_name`), files are `reversi-<name>-m<NN>.json`, and
 the name comes back on load (from inside the file, else its file name), to keep several games apart.
+Score hints (2026-10-11): the Hints selector (Off / Probabilities / Scores / Both) can show each of the
+person's moves' expected final disc margin like Kifubox/Edax (`/api/scores`): exact with <= 18 empty
+squares (solver), else from one MCTS 400 search (each move's average value -> 16 x atanh -> discs).
 
 **Recording and grading games** (2026-10-09): `web_play.py` saves every game to
 `games/<start time>_<model>_model-<color>.json` (rewritten after each move, undo and redo, so the file
@@ -884,7 +887,7 @@ of the same fork (`bwanab/edax-reversi`, `src/edax_wrapper.c`) and the library p
 Run the suite with `./run_tests.sh` (all tests) or `./run_tests.sh <name>` for one group
 (`environment`, `scenarios`, `edge_cases`, `training`, `integration`, `bc`, `focused`,
 `training_issues`, `step`, `lr`, `features`, `resnet`, `play`, `starts`, `refresh`, `openings`, `mix`, `search`, `mcts`, `levels`, `web`, `endgame`, `egaroucid`, ...).
-The script sets `PYTHONPATH` to the project root and runs through `uv run`. All 205 tests in `tests/`
+The script sets `PYTHONPATH` to the project root and runs through `uv run`. All 211 tests in `tests/`
 are part of the runner and pass. `test_edax_opponent.py`
 in the project root is a separate script that needs the Edax server running.
 

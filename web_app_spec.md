@@ -28,7 +28,7 @@ uv run python web_play.py -m r256x12_mid1_CNN_test               # then open htt
 | `--max-games N` | in-memory store: games kept at once (default 200); new games get HTTP 503 when full |
 | `--redis-url URL` | keep games, locks and rate limits in Redis (default: the `REDIS_URL` environment variable); see "Deployment" |
 | `--idle-minutes M` | a game with no requests for this long is dropped (default 120) |
-| `--rate N` | API requests per client address per minute (default 120); new games: 10 per minute |
+| `--rate N` | API requests per client address per minute (default 120); new games: 10 per minute; move scores: 30 per minute |
 | `--trust-proxy` | behind one reverse proxy: take the client address from `X-Forwarded-For` |
 | `--debug` | Flask debug mode; refused unless `--host` is local (its debugger can run code) |
 
@@ -72,9 +72,17 @@ model move's `method` starts with its level (e.g. `level 7: MCTS 100 simulations
   controls). Loading starts a new game (new id) at that position; if it is the model's turn, it moves.
   The name comes from inside the file, else from the file name (`reversi-<name>-m<NN>.json`, ignoring a
   browser's " (1)"; for a `.txt` file its name without the extension).
-- **Show hints**: shows or hides the model's move probabilities on your candidate moves, its list of
-  top policy moves, and the solver's verdict ("model wins by N with perfect play"). Display only: the
-  server always sends them. Remembered per browser (`localStorage`).
+- **Hints**: Off / Probabilities / Scores / Both, remembered per browser (`localStorage`).
+  - *Probabilities*: the network's probability for each of your candidate moves (its guess at what you
+    will play), its list of top moves for its own move, and the solver's verdict ("model wins by N with
+    perfect play"). Sent with every state; display only.
+  - *Scores*: the expected final disc margin, for you, of each of your candidate moves, like the move
+    scores of Edax, Egaroucid or Kifubox (+2 = you should win by about 2 with best play from there).
+    Exact (endgame solver) with at most 18 empty squares; before that estimated by an MCTS search
+    (shown with `~`). The best move's score is green. Fetched from `/api/scores` on your turn
+    (about the cost of one model move; cached per position). The line under the turn indicator says
+    which kind they are.
+  - *Both*: score above, probability below.
 
 ## Games and ids
 
@@ -206,6 +214,23 @@ What the page saves:
 ```
 
 `moves`, `model_color`, `level` and `name` are what `load_game` needs; the rest is for reading the file.
+
+### `GET /api/scores?game_id=...`
+
+The expected final disc margin, from the person's side, of each of the person's legal moves (only on
+the person's turn; otherwise 400):
+
+```json
+{"game_id": "...", "move_number": 12, "method": "estimated (MCTS 400 simulations)", "exact": false,
+ "scores": [{"action": 44, "score": 2.3, "best": true}, {"action": 19, "score": -1.1, "best": false}, ...]}
+```
+
+Sorted best first. With at most 18 empty squares the scores are exact (`"exact": true`, integers,
+`"method": "exact (endgame solver)"`): each move's position solved. Earlier, one MCTS search of the
+position (400 simulations, no early stop, leaf solves at <= 16 empties): each move's average value
+converted back to discs (16 x atanh, the inverse of the value head's tanh(margin / 16) scale); a move
+the search never tried gets the value head's estimate of the position after it. Estimates are rougher
+for moves the search barely explored. Cached per position; rate-limited to 30 per client per minute.
 
 ### `POST /api/set_name`
 

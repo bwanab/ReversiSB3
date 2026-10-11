@@ -44,6 +44,8 @@ class TestWebPlay(unittest.TestCase):
         wp.Config.default_level, wp.Config.record = 3, False
         wp.Config.idle_timeout, wp.Config.rate_per_minute = 7200, 100000
         wp.Config.new_games_per_minute = 100000
+        wp.Config.scores_per_minute, wp.Config.score_sims = 100000, 400
+        wp.SCORER.clear()
         self.c = wp.app.test_client()
 
     def stored(self, gid):
@@ -315,6 +317,50 @@ class TestWebPlay(unittest.TestCase):
         self.assertIsNone(self.new()['name'])                                         # new games start unnamed
         self.c.post('/api/set_name', json={'game_id': gid, 'name': ''})              # cleared
         self.assertIsNone(self.c.get('/api/game_state', query_string={'game_id': gid}).get_json()['name'])
+
+    def scores(self, gid):
+        return self.c.get('/api/scores', query_string={'game_id': gid})
+
+    def test_move_scores_estimated(self):
+        wp.Config.score_sims = 60
+        g = self.new()
+        r = self.scores(g['game_id'])
+        self.assertEqual(r.status_code, 200)
+        d = r.get_json()
+        self.assertFalse(d['exact'])
+        self.assertIn('estimated', d['method'])
+        self.assertEqual(sorted(e['action'] for e in d['scores']), sorted(m['action'] for m in g['valid_moves']))
+        self.assertTrue(all(abs(e['score']) <= 64 for e in d['scores']))
+        self.assertTrue(d['scores'][0]['best'])                                    # sorted best first
+        self.assertEqual(self.scores(g['game_id']).get_json()['scores'], d['scores'])   # cached
+
+    def test_move_scores_exact_late(self):
+        from util.endgame import solve
+        for seed in range(11, 31):                     # the tiny test network can be wiped out early
+            random.seed(seed)
+            g = self.new()
+            while not g['game_over'] and sum(row.count(0) for row in g['board']) > 14:
+                g = self.move(g['game_id'], random.choice(g['valid_moves'])['action']).get_json()
+            if not g['game_over']:
+                break
+        else:
+            self.skipTest("every game ended early")
+        d = self.scores(g['game_id']).get_json()
+        self.assertTrue(d['exact'])
+        board = np.array(g['board'], dtype=np.int8).reshape(64) * (1 if g['current_player'] == 'black' else -1)
+        for e in d['scores']:
+            self.assertEqual(e['score'], -solve(play_move(board, e['action']))[0])
+        best = max(e['score'] for e in d['scores'])
+        self.assertEqual([e['best'] for e in d['scores']], [e['score'] == best for e in d['scores']])
+        while not g['game_over']:
+            g = self.move(g['game_id'], random.choice(g['valid_moves'])['action']).get_json()
+        self.assertEqual(self.scores(g['game_id']).status_code, 400)               # game over
+
+    def test_move_scores_rate_limit(self):
+        wp.Config.score_sims, wp.Config.scores_per_minute = 20, 2
+        g = self.new()
+        codes = [self.scores(g['game_id']).status_code for _ in range(3)]
+        self.assertEqual(codes, [200, 200, 429])
 
     def test_game_record(self):
         with tempfile.TemporaryDirectory() as d:

@@ -56,10 +56,14 @@ class Config:
     idle_timeout = 2 * 3600       # seconds without a request before a game is dropped
     rate_per_minute = 120         # API requests per client address per minute
     new_games_per_minute = 10
+    scores_per_minute = 30        # /api/scores costs about one model move
+    score_sims = 400              # MCTS simulations for estimated move scores
+    score_solve_empties = 18      # exact move scores (solver) at or below this many empty squares
 
 
 ENGINE_LOCK = threading.Lock()    # model moves and probabilities are computed one at a time (per instance)
 PLAYERS = {}                      # level -> player, created on first use (under ENGINE_LOCK)
+SCORER = {}                       # the MCTS used for estimated move scores (under ENGINE_LOCK)
 STORE = MemoryStore()             # games and rate-limit counters (web_store.py); main() may switch to Redis
 
 
@@ -150,6 +154,7 @@ class Game:
         self.last_move = None         # info on the model's latest move
         self.model_sequence = []      # the model's moves since the person's last move, in order (2+ when the person passed)
         self.model_passed = False
+        self.scores = None            # cached move scores for the current position (see move_scores)
         self.started = time.strftime("%Y%m%d-%H%M%S")
 
     def to_dict(self):
@@ -158,7 +163,7 @@ class Game:
                 "moves": [[m["action"], 1 if m["color"] == "black" else -1, m["by"], m.get("method")]
                           for m in self.history],
                 "redo": self.redo, "last_move": self.last_move, "model_passed": self.model_passed,
-                "model_sequence": self.model_sequence, "name": self.name}
+                "model_sequence": self.model_sequence, "name": self.name, "scores": self.scores}
 
     @classmethod
     def from_dict(cls, d):
@@ -171,6 +176,8 @@ class Game:
         game.last_move, game.model_passed = d["last_move"], d["model_passed"]
         game.model_sequence = list(d.get("model_sequence", []))
         game.name = d.get("name")
+        scores = d.get("scores")
+        game.scores = scores if scores and scores.get("position") == game.position_key() else None
         return game
 
     @property
@@ -240,6 +247,53 @@ class Game:
         if not self.redo:
             raise ApiError("no moves to redo")
         self.human_move(self.redo.pop(), from_redo=True)
+
+    def position_key(self):
+        """The board and side to move as a string (b = black, w = white, - = empty)."""
+        return "".join({BLACK: "b", WHITE: "w", 0: "-"}[int(v)] for v in self.board) + COLOR_NAME[self.to_move][0]
+
+    def move_scores(self):
+        """Expected final disc margin, for the person, of each of the person's legal moves (like
+        Edax's or Kifubox's move scores). Exact (solver) with at most Config.score_solve_empties empty
+        squares; otherwise estimated by an MCTS search of the position: each move's average value
+        converted back to discs (16 * atanh), or the value head after the move if the search never
+        tried it. Cached for the position."""
+        if self.over or self.to_move != self.human_color:
+            raise ApiError("move scores are for the person's turn")
+        if self.scores and self.scores.get("position") == self.position_key():
+            return self.scores
+        flat = self.board * self.to_move
+        legal = [int(m) for m in legal_moves(flat)]
+        children = [play_move(flat, m) for m in legal]          # each from the opponent's view
+        empties = int((flat == 0).sum())
+        with ENGINE_LOCK:
+            if empties <= Config.score_solve_empties:
+                from util.endgame import solve_many
+                margins = {m: float(-s) for m, (s, _, _) in zip(legal, solve_many(children))}
+                method, exact = "exact (endgame solver)", True
+            else:
+                from util.mcts import MCTS
+                from util.search import policy_value, value_evaluator
+                if "mcts" not in SCORER:
+                    SCORER["mcts"] = MCTS(lambda bs: policy_value(Config.model, bs), sims=Config.score_sims,
+                                          early_stop=False, leaf_solve_empties=16)
+                    SCORER["value"] = value_evaluator(Config.model)
+                mcts = SCORER["mcts"]
+                mcts.run([flat])
+                root = mcts.last_roots[0]
+                child_values = SCORER["value"](np.array(children))
+                margins = {}
+                for i, m in enumerate(legal):
+                    j = int(np.flatnonzero(root.moves == m)[0])
+                    q = root.w[j] / root.n[j] if root.n[j] > 0 else -float(child_values[i])
+                    margins[m] = float(16 * np.arctanh(np.clip(q, -0.999, 0.999)))
+                method, exact = f"estimated (MCTS {Config.score_sims} simulations)", False
+        best = max(margins.values())
+        self.scores = {"position": self.position_key(), "move_number": len(self.history), "method": method,
+                       "exact": exact,
+                       "scores": [{"action": m, "score": round(v, 1), "best": v >= best - (0 if exact else 0.05)}
+                                  for m, v in sorted(margins.items(), key=lambda kv: -kv[1])]}
+        return self.scores
 
     def move_probabilities(self):
         """The policy network's probability for each legal move of the side to move."""
@@ -500,6 +554,16 @@ def redo():
 def game_state():
     with open_game(game_id_of(request.args.get("game_id")), write=False) as game:
         return jsonify(game.state())
+
+
+@app.route("/api/scores", methods=["GET"])
+def move_scores():
+    """Expected final margin of each of the person's moves (see Game.move_scores)."""
+    gid = game_id_of(request.args.get("game_id"))
+    rate_limit("scores", Config.scores_per_minute)
+    with open_game(gid) as game:
+        scores = {k: v for k, v in game.move_scores().items() if k != "position"}
+        return jsonify({"game_id": game.id, **scores})
 
 
 @app.route("/api/set_name", methods=["POST"])
