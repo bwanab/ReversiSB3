@@ -548,6 +548,14 @@ Each step: what we saw -> what we concluded -> what we did. Details and numbers 
    leaf solves: 68 / 58.5 / 44 (7-9). L9/L10 from step 30. -> Roughly even with Edax depth: L1 well
    below 1, L2 1, L3 2, L4 4, L5 5, L6 7, L7 8-9, L8 10-11, L9 ~13, L10 ~15. Leaf solving is worth a
    lot at low budgets. Shown in the page (hover over the level) and `/api/levels`.
+32. **Following the score hints** (`match.py`, our players against each other, 200 balanced openings x 2
+   colors; log `runs/hint_matches.log`). By hand, always playing the best-scored move beat levels 1-8 and
+   lost at 9-10. The "hint" player (`util/hints.ScorePlayer`: exact <= 18 empties, else MCTS 400 without
+   early stop, highest average value) vs level 7 92.9%, level 8 76.2%, **level 9 54.4% (mean margin
+   +0.1)**, level 10 36.6%. -> The hint player is level-9 strength (~Edax depth 13); the by-hand losses
+   at level 9 were small-sample noise. Choosing the move by average value is not worse than by visit
+   count at equal search (the opposite of the AlphaZero convention, maybe slightly better: untested at
+   equal cost).
 
 **External check: Piccolo (iPhone app), played by hand via `web_play.py`.** 2026-10-06:
 `r256x12_mid1_CNN_test` with the network only (no search or solver, ~Edax-2 strength) won a game
@@ -926,7 +934,7 @@ deep search is GPU compute-bound, ~72% of its time, which is where NVIDIA tensor
 - Search check with `edax1m_graded`'s value head: `sb-play.py --search-depth 2 --search-top-k 3`
   (value regret 3.3 vs policy 1.8 discs suggests it will still lose to the top move).
 
-### Opponent-vs-opponent play (not currently needed)
+### Opponent-vs-opponent play (done for our own players: `match.py`, 2026-10-11)
 
 There is no tool for pitting two arbitrary opponents against each other (e.g. Random vs RAI,
 RAI vs Edax, or a model playing WHITE). `sb-play.py` only covers *model (as BLACK) vs opponent*.
