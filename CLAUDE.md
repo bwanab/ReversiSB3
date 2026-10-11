@@ -570,6 +570,12 @@ second benchmark.
 |---|---|---|---|---|
 | 2026-10-11 | `r256x12_mid1` | `--strong` (level 10: MCTS 800, early stop, solvers) | 11 | win (1 game) |
 
+Observed: Kifubox (level 11) mostly played the moves our policy rated highest (the page's hints), and
+where it deviated, always to a close alternative; Piccolo often played moves the policy rated near the
+bottom (mostly middlegame). I.e. Kifubox plays in the style of strong engines/experts; games against it
+are decided among near-equal moves. `analyze_games.py` on each app's saved games can quantify this
+(policy top-1/top-3 agreement, discs lost per move by Egaroucid).
+
 Other apps (2026-10-09, by hand): of three Android Othello apps tried, one crashed, one played illegally
 (didn't flip all captured discs), and "Reversi - Othello" by Livio (100k+ downloads) lost at its maximum level to
 `r256x12_mid1` at web_play level 5 (~Edax depth 5, step 31).
