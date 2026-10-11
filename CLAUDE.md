@@ -273,7 +273,8 @@ tested positions with 12-16 empties, and vs minimax down to 16-empty Edax solves
 Speed (M4 Max, positions from real games; since step 27: transposition table, PVS, ETC, stability
 cutoff): 14 empties ~3.6 ms, 16 ~12.5 ms, 18 ~83 ms, 20 ~0.44 s (4-5x faster than the first version:
 14 ~8 ms, 16 ~51, 18 ~376, 20 ~2.2 s). `uv run python solver/bench.py` times it and checks every score
-against `solver/bench_reference.npz` (made with the first version); run it after any solver change.
+against `solver/bench_reference.npz` (in git: the 352 positions and the first version's scores, so it runs on
+any machine); run it after any solver change or after building on a new machine.
 `util/endgame.solve_async(boards)` solves on a shared thread pool while other work runs.
 
 **Edax full solves above 16 empties are sometimes off** through our wrapper: asked for depth >=

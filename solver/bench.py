@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
 Solver benchmark: time util/endgame.solve on real-game positions at several empty counts and check
-the scores against a reference file (made by the first run with --make-reference).
+the scores against solver/bench_reference.npz (in git: the positions and the first solver's scores).
 
-  uv run python solver/bench.py --make-reference   # once, with a trusted solver build
-  uv run python solver/bench.py                    # after changes: times, nodes, and mismatches
-Positions come from the Edax label files (labels_d*_all.npz), side to move with a legal move.
+  uv run python solver/bench.py                    # after changes / on a new machine: times, nodes, mismatches
+  uv run python solver/bench.py --make-reference   # only to start over: picks positions from the Edax
+                                                   # label files (labels_d*_all.npz) with a trusted build
 """
 
 import argparse
@@ -40,8 +40,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--make-reference", action="store_true")
     args = parser.parse_args()
-    pos = positions()
     ref = None if args.make_reference else np.load(REF)
+    pos = positions() if ref is None else {e: list(ref[f"boards_{e}"]) for e in COUNTS}
     saved = {}
     for e, boards in pos.items():
         t = time.time()
@@ -50,6 +50,7 @@ def main():
         scores = np.array([r[0] for r in res])
         nodes = np.array([r[2] for r in res])
         saved[f"scores_{e}"] = scores
+        saved[f"boards_{e}"] = np.array(boards, dtype=np.int8)
         line = (f"{e} empties: {len(boards):3d} positions, {1000 * secs / len(boards):8.2f} ms/position, "
                 f"{nodes.mean() / 1000:9.1f}k nodes/position")
         if ref is not None:
