@@ -65,6 +65,12 @@ model move's `method` starts with its level (e.g. `level 7: MCTS 100 simulations
   the opponent's; Cancel saves without one and asks again next time). The file is
   `reversi-<name>-m<NN>.json`, NN = moves played so far (e.g. `reversi-Alice-m23.json`), or
   `reversi-m<NN>.json` without a name; spaces in the name become `_`.
+- **Autosave** (checkbox, remembered per browser): saves the game as "Save game" does after each of
+  the person's moves once the model has replied (and after redo), and right away when switched on. The
+  first save of an unnamed game asks for a name; if that prompt is canceled during autosave, the game
+  is saved unnamed and autosave doesn't ask again for it. Each save is a new download (move number in
+  the file name); Chrome may ask once to allow multiple downloads, and a browser set to ask where to
+  save each download will prompt every time. Page-only: no server changes.
 - **Game name**: shown under the turn indicator ("Game: Alice ✎"); click it to rename. It stays with the
   game (later saves reuse it); New Game starts unnamed.
 - **Load game**: continues a saved file (with its own model color, level and name), or a plain move

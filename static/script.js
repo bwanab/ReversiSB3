@@ -8,8 +8,26 @@ let gameState = {
     gameId: null,      // from /api/new_game; sent with every request about this game
     gameName: null,    // optional label for this game (e.g. the opponent); asked at its first save
     lastData: null,
-    hintMode: loadHintMode()
+    hintMode: loadHintMode(),
+    autosave: loadSetting('autosave') === 'true',
+    nameDeclined: false   // the person canceled the name prompt during autosave: don't ask again this game
 };
+
+function loadSetting(key) {
+    try {
+        return localStorage.getItem(key);
+    } catch (e) {
+        return null;
+    }
+}
+
+function storeSetting(key, value) {
+    try {
+        localStorage.setItem(key, value);
+    } catch (e) {
+        // not stored; the setting still applies to this page
+    }
+}
 
 // Hints: 'off', 'probabilities' (the network's move probabilities, its top moves, the solver's
 // verdict), 'scores' (expected final margin of each of your moves) or 'both'; remembered per browser
@@ -113,6 +131,15 @@ function setupEventListeners() {
     document.getElementById('load-btn').addEventListener('click', () => document.getElementById('load-file').click());
     document.getElementById('load-file').addEventListener('change', loadGameFile);
     document.getElementById('game-name').addEventListener('click', renameGame);
+    const autosave = document.getElementById('autosave');
+    autosave.checked = gameState.autosave;
+    autosave.addEventListener('change', () => {
+        gameState.autosave = autosave.checked;
+        storeSetting('autosave', String(gameState.autosave));
+        if (gameState.autosave && gameState.gameId) {
+            saveGame({ auto: true });              // cover the game from now on
+        }
+    });
     const hints = document.getElementById('hint-mode');
     hints.value = gameState.hintMode;
     hints.addEventListener('change', changeHintMode);
@@ -195,6 +222,9 @@ async function handleCellClick(row, col) {
 
         if (response.ok) {
             updateGameState(data);
+            if (gameState.autosave) {
+                saveGame({ auto: true });
+            }
         } else {
             showError(data.error || 'Failed to make move');
         }
@@ -206,6 +236,9 @@ async function handleCellClick(row, col) {
 function updateGameState(data) {
     gameState.lastData = data;
     if (data.game_id) {
+        if (gameState.gameId !== data.game_id) {
+            gameState.nameDeclined = false;
+        }
         gameState.gameId = data.game_id;
         document.getElementById('save-btn').disabled = false;
     }
@@ -434,12 +467,15 @@ function fileSafe(name) {
 
 // Save: download the game's moves, model color, level and name (GET /api/export) as a small JSON
 // file named reversi-<name>-m<moves>.json; the first save of an unnamed game asks for a name
-async function saveGame() {
+async function saveGame(options = {}) {
     if (!gameState.gameId) {
         return;
     }
-    if (!gameState.gameName) {
+    if (!gameState.gameName && !(options.auto && gameState.nameDeclined)) {
         const name = askName('');
+        if (name === null && options.auto) {
+            gameState.nameDeclined = true;         // autosave: save unnamed, and don't ask after every move
+        }
         if (name) {
             try {
                 await setGameName(name);
@@ -670,6 +706,9 @@ async function redoMove() {
 
         if (response.ok) {
             updateGameState(data);
+            if (gameState.autosave) {
+                saveGame({ auto: true });
+            }
         } else {
             showError(data.error || 'Failed to redo');
         }

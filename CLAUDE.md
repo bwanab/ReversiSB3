@@ -608,6 +608,7 @@ game" continues such a file or any move list like `f5d6c3` (`/api/load_game`, ev
 passes inferred), for long games against people elsewhere. Games can be named (asked at the first save,
 shown above the board, click to rename; `/api/set_name`), files are `reversi-<name>-m<NN>.json`, and
 the name comes back on load (from inside the file, else its file name), to keep several games apart.
+Autosave (checkbox): saves after each of the person's moves once the model has replied.
 Score hints (2026-10-11): the Hints selector (Off / Probabilities / Scores / Both) can show each of the
 person's moves' expected final disc margin like Kifubox/Edax (`/api/scores`): exact with <= 18 empty
 squares (solver), else from one MCTS 400 search (each move's average value -> 16 x atanh -> discs).
