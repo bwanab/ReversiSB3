@@ -284,11 +284,19 @@ so is Edax as an opponent at depths <= 16.
 
 ### Egaroucid (second, independent opponent; 2026-10-06)
 Egaroucid (https://www.egaroucid.nyanyan.dev/, GPL-3.0, one of the strongest Othello programs) is
-cloned at `~/src/Egaroucid` and built from source (no cmake needed):
-`cd ~/src/Egaroucid && clang++ -O2 ./src/Egaroucid_for_Console.cpp -o ./bin/Egaroucid_for_Console.out -mcpu=native -pthread -std=c++20 -DHAS_ARM_PROCESSOR -DHAS_NO_AVX2`
-(on Apple Silicon `-DHAS_NO_AVX2` is required: its SIMD code uses x86 intrinsics; on this Mac prefix
-`SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk`; on Linux/x86 drop both flags for
-the faster SIMD build). `util/egaroucid_client.py` drives its console mode (`setboard` + `hint`),
+cloned at `~/src/Egaroucid` and built from source (no cmake needed; the evaluation weights,
+`bin/resources/`, 75 MB, come with the clone):
+```bash
+git clone https://github.com/Nyanyan/Egaroucid.git ~/src/Egaroucid
+cd ~/src/Egaroucid && clang++ -O2 ./src/Egaroucid_for_Console.cpp -o ./bin/Egaroucid_for_Console.out \
+    -mcpu=native -pthread -std=c++20 -DHAS_ARM_PROCESSOR -DHAS_NO_AVX2
+```
+On Apple Silicon `-DHAS_NO_AVX2` is required (its SIMD code uses x86 intrinsics); on Linux/x86 drop
+both `-D` flags for the faster SIMD build. Build it on each machine (`-mcpu=native`). If linking fails
+because the Command Line Tools linker is older than the default SDK (as on the M4 Max, see Edax),
+prefix an installed older SDK: `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX<version>.sdk`
+(here 26.5; `ls /Library/Developer/CommandLineTools/SDKs/` lists them). Elsewhere, set `EGAROUCID` to
+the binary's path. The tests that need it (`tests/test_egaroucid.py`) skip if it isn't built. `util/egaroucid_client.py` drives its console mode (`setboard` + `hint`),
 not GTP: GTP can't load an arbitrary position, and our evaluations start from stored positions. It
 runs with `-nobook` (like Edax). `eval_batch.py -o egaroucid -p LEVELS ...`. Levels 1-10 are
 full-width searches of that depth (exact endgame near the end); above 10 it prunes selectively.
