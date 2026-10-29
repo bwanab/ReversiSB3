@@ -60,12 +60,14 @@ model move's `method` starts with its level (e.g. `level 7: MCTS 100 simulations
 - **Model plays as**: black or white, for the next new game.
 - **Strength**: the level (1-10, or Custom); sent with "New Game", and changes during a game apply to
   that game from the model's next move.
+- **Menu** (☰, right of New Game): a dialog with Undo, Redo, Save game, Load game, Autosave and Set up
+  position (below). Choosing an action closes it; ✕, Esc or a click outside closes it too.
 - **Save game**: downloads the game as a small JSON file (see `/api/export`), e.g. to continue a long
   game against a person elsewhere after a wait. The first save of a game asks for a **name** (e.g.
   the opponent's; Cancel saves without one and asks again next time). The file is
   `reversi-<name>-m<NN>.json`, NN = moves played so far (e.g. `reversi-Alice-m23.json`), or
   `reversi-m<NN>.json` without a name; spaces in the name become `_`.
-- **Autosave** (checkbox, remembered per browser): saves the game as "Save game" does after each of
+- **Autosave** (checkbox, on by default, remembered per browser once changed): saves the game as "Save game" does after each of
   the person's moves once the model has replied (and after redo), and right away when switched on. The
   first save of an unnamed game asks for a name; if that prompt is canceled during autosave, the game
   is saved unnamed and autosave doesn't ask again for it. Each save is a new download (move number in
@@ -78,6 +80,16 @@ model move's `method` starts with its level (e.g. `level 7: MCTS 100 simulations
   controls). Loading starts a new game (new id) at that position; if it is the model's turn, it moves.
   The name comes from inside the file, else from the file name (`reversi-<name>-m<NN>.json`, ignoring a
   browser's " (1)"; for a `.txt` file its name without the extension).
+- **Set up position** (✎): edit mode for starting from any position, e.g. an online opponent's
+  "random opening". The board starts as the current position (or the standard start before any game)
+  with an outline; each click on a square cycles it empty → black → white → empty. Also: who is to
+  move, Clear board, Standard start, and a **Position** text box showing the position as text (64
+  squares row by row from A1, `b`/`w`/`-`, then the side to move); paste one there and press Enter to
+  set the board. **Play from here** starts a new game from it with the model color and strength chosen
+  in the controls (the model moves first if it is to move); Cancel returns to the game as it was. Any
+  arrangement is accepted, reachable from the standard start or not, as long as someone can move; if
+  the side chosen to move has no legal move, the other side moves first. Saved games keep the
+  starting position (`start` in `/api/export`) and load back from it.
 - **Hints**: Off / Probabilities / Scores / Both, remembered per browser (`localStorage`).
   - *Probabilities*: the network's probability for each of your candidate moves (its guess at what you
     will play), its list of top moves for its own move, and the solver's verdict ("model wins by N with
@@ -179,9 +191,17 @@ The game page.
 
 ### `POST /api/new_game`
 
-Request: `{"model_color": "black" | "white", "level": 1-10 | "custom"}`, both optional (defaults:
-`"black"` and the server's default level). Response: the state of the new game, after the model's
-first move if the model plays black.
+Request: `{"model_color": "black" | "white", "level": 1-10 | "custom", "start": "<position>"}`, all
+optional (defaults: `"black"`, the server's default level, the standard start). Response: the state of
+the new game, after the model's first move(s) if the model is to move.
+
+`start` sets up any position (it needn't be reachable from the standard start): 64 squares row by row
+from A1 (`b`, `x` or `*` = black; `w` or `o` = white; `-`, `.` or `e` = empty), then the side to move (`b`/`x`
+or `w`/`o`); whitespace and case are ignored, e.g.
+`"---------------------------wb------bw---------------------------b"` is the standard start. If the
+side to move has no legal move the other side moves first; a position where neither side can move is
+rejected (400). The game's state then carries `"start"` (the position in `b`/`w`/`-` form, side to
+move after any such pass); it is `null` for games from the standard start.
 
 ### `POST /api/make_move`
 
@@ -202,8 +222,8 @@ redo list. Response: the state.
 ### `POST /api/load_game`
 
 Request: `{"moves": "f5d6c3..." | ["f5", "d6", ...] | [37, 43, ...], "model_color": "black" | "white",
-"level": 1-10 | "custom", "name": "Alice"}` (`model_color`, `level` and `name` optional). A new game replaying
-the moves from the standard start: each move must be legal for the side to move; passes are inferred
+"level": 1-10 | "custom", "name": "Alice", "start": "<position>"}` (all but `moves` optional; `start` as in
+`new_game`). A new game replaying the moves from the standard start (or `start`): each move must be legal for the side to move; passes are inferred
 (when the side to move has no legal move, the other side moves). Square names are case-insensitive;
 spaces, commas, dashes and dots between them are ignored; at most 60 moves. If the model is then to
 move, it moves. Response: the state of the new game. Errors (400) name the first illegal move, e.g.
@@ -220,6 +240,7 @@ What the page saves:
 ```
 
 `moves`, `model_color`, `level` and `name` are what `load_game` needs; the rest is for reading the file.
+A game set up from a position (see `new_game`) also has `"start"`, and its `moves` are played from there.
 
 ### `GET /api/scores?game_id=...`
 
@@ -291,6 +312,7 @@ undo are not kept):
   "player": "level 10: MCTS 800 simulations, leaf solves <= 16, solver <= 18 empties",
   "level": 10,
   "model_color": "black",
+  "start": null,
   "moves": [
     {"square": "F5", "action": 37, "color": "black", "by": "model",
      "board_before": [0, 0, ... 64 values, 1 = black, -1 = white ...],
@@ -303,7 +325,8 @@ undo are not kept):
 }
 ```
 
-`player` and `level` are the level when the file was last written; if the level changed mid-game,
+`start` is the set-up starting position (`new_game`), or `null` for the standard start; the first
+move's `board_before` is the starting board either way. `player` and `level` are the level when the file was last written; if the level changed mid-game,
 each model move's `method` shows the level that chose it. `analyze_games.py games/*.json` grades the
 person's (or an opponent app's) moves with Egaroucid next to the policy probabilities the model gave
 them (see CLAUDE.md, "Recording and grading games").

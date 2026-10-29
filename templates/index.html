@@ -37,22 +37,32 @@
                     </select>
                 </div>
                 <button id="new-game-btn" class="btn btn-primary">New Game</button>
-                <div class="control-group">
+                <button id="menu-btn" class="menu-btn" title="Menu: undo, redo, save, load, set up a position"
+                        aria-label="Menu" aria-haspopup="dialog">☰</button>
+            </div>
+
+            <!-- Menu (the ☰ button) -->
+            <dialog id="menu" class="menu-dialog" aria-label="Menu">
+                <div class="menu-header">
+                    <span>Menu</span>
+                    <button id="menu-close-btn" class="menu-close" aria-label="Close">✕</button>
+                </div>
+                <div class="menu-row">
                     <button id="undo-btn" class="btn btn-secondary" disabled>⟲ Undo</button>
                     <button id="redo-btn" class="btn btn-secondary" disabled>⟳ Redo</button>
                 </div>
-                <div class="control-group">
-                    <button id="save-btn" class="btn btn-secondary" disabled
-                            title="Download this game (moves, model color, level) to continue later">💾 Save game</button>
-                    <button id="load-btn" class="btn btn-secondary"
-                            title="Continue a saved game, or a move list like f5d6c3 (the model takes the color chosen above)">📂 Load game</button>
-                    <input type="file" id="load-file" accept=".json,.txt,application/json,text/plain" hidden>
-                    <label for="autosave" title="Save the game after each of your moves, once the model has replied">
-                        <input type="checkbox" id="autosave">
-                        Autosave
-                    </label>
-                </div>
-            </div>
+                <button id="save-btn" class="btn btn-secondary" disabled
+                        title="Download this game (moves, model color, level) to continue later">💾 Save game</button>
+                <button id="load-btn" class="btn btn-secondary"
+                        title="Continue a saved game, or a move list like f5d6c3 (the model takes the color chosen above)">📂 Load game</button>
+                <label for="autosave" class="menu-check" title="Save the game after each of your moves, once the model has replied">
+                    <input type="checkbox" id="autosave">
+                    Autosave
+                </label>
+                <button id="edit-btn" class="btn btn-secondary"
+                        title="Set up any starting position by hand, then play it (model color and strength from the controls)">✎ Set up position</button>
+            </dialog>
+            <input type="file" id="load-file" accept=".json,.txt,application/json,text/plain" hidden>
 
             <!-- Game Info -->
             <div class="game-info">
@@ -74,6 +84,29 @@
                     <div id="score-info" class="score-info"></div>
                 </div>
                 <div id="game-status" class="game-status"></div>
+            </div>
+
+            <!-- Position editor (shown by "Set up position") -->
+            <div id="edit-panel" class="edit-panel" hidden>
+                <p class="edit-help">Click a square to change it: empty → black → white → empty.</p>
+                <div class="edit-row">
+                    <label for="edit-to-move">To move:</label>
+                    <select id="edit-to-move">
+                        <option value="black">Black</option>
+                        <option value="white">White</option>
+                    </select>
+                    <button id="edit-clear-btn" class="btn btn-secondary">Clear board</button>
+                    <button id="edit-standard-btn" class="btn btn-secondary">Standard start</button>
+                </div>
+                <div class="edit-row">
+                    <label for="edit-position">Position:</label>
+                    <input id="edit-position" class="position-input" spellcheck="false" autocomplete="off"
+                           title="64 squares row by row from A1 (b = black, w = white, - = empty), then the side to move; paste one and press Enter">
+                </div>
+                <div class="edit-row">
+                    <button id="edit-start-btn" class="btn btn-primary">Play from here</button>
+                    <button id="edit-cancel-btn" class="btn btn-secondary">Cancel</button>
+                </div>
             </div>
 
             <!-- Game Board -->

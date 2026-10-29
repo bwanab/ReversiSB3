@@ -443,6 +443,121 @@ footer {
     color: #718096;
 }
 
+/* Menu (☰ button and its dialog) */
+.menu-btn {
+    padding: 6px 12px;
+    border: 2px solid #e2e8f0;
+    border-radius: 6px;
+    background: white;
+    color: #2d3748;
+    font-size: 1.4em;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.menu-btn:hover {
+    border-color: #667eea;
+}
+
+.menu-dialog {
+    border: none;
+    border-radius: 10px;
+    padding: 20px;
+    width: min(320px, calc(100vw - 32px));
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+}
+
+.menu-dialog[open] {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.menu-dialog::backdrop {
+    background: rgba(26, 32, 44, 0.4);
+}
+
+.menu-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: 700;
+    font-size: 1.2em;
+    color: #2d3748;
+}
+
+.menu-close {
+    border: none;
+    background: none;
+    font-size: 1.1em;
+    color: #718096;
+    cursor: pointer;
+}
+
+.menu-row {
+    display: flex;
+    gap: 12px;
+}
+
+.menu-row .btn {
+    flex: 1;
+}
+
+.menu-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    color: #2d3748;
+    cursor: pointer;
+}
+
+/* Position editor */
+.edit-panel {
+    margin-bottom: 20px;
+    padding: 15px;
+    background: #fefcbf;
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.edit-panel[hidden] {
+    display: none;
+}
+
+.edit-help {
+    margin: 0;
+    color: #2d3748;
+}
+
+.edit-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+}
+
+.edit-row label {
+    font-weight: 600;
+    color: #2d3748;
+}
+
+.position-input {
+    flex: 1;
+    min-width: 0;
+    padding: 8px 12px;
+    border: 2px solid #e2e8f0;
+    border-radius: 6px;
+    font-family: monospace;
+    font-size: 0.9em;
+}
+
+.board.editing {
+    outline: 4px solid #d69e2e;
+}
+
 /* Responsive */
 @media (max-width: 600px) {
     .container {

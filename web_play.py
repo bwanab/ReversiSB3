@@ -124,6 +124,28 @@ def parse_name(value):
     return value.strip()
 
 
+POSITION_CHARS = {**dict.fromkeys("bx*", BLACK), **dict.fromkeys("wo", WHITE), **dict.fromkeys("-.e", 0)}
+
+
+def parse_position(value):
+    """A starting position: 64 squares row by row from A1 (b/x/* black, w/o white, -/./e empty), then
+    the side to move (b/x or w/o); whitespace ignored. Returns (board, to_move), the side to move
+    switched if it has to pass; any arrangement is allowed (it needn't be reachable from the standard
+    start) as long as someone can move."""
+    if not isinstance(value, str) or len(value) > 200:
+        raise ApiError("start must be a position string: 64 squares (b, w, -) and the side to move")
+    text = re.sub(r"\s+", "", value).lower()
+    if len(text) != 65 or any(c not in POSITION_CHARS for c in text[:64]) or POSITION_CHARS.get(text[64], 0) == 0:
+        raise ApiError("start must be 64 squares (b, w, -) row by row from A1, then the side to move (b or w)")
+    board = np.array([POSITION_CHARS[c] for c in text[:64]], dtype=np.int8)
+    to_move = POSITION_CHARS[text[64]]
+    if not len(legal_moves(board * to_move)):
+        if not len(legal_moves(board * -to_move)):
+            raise ApiError("neither side has a legal move in that position")
+        to_move = -to_move
+    return board, to_move
+
+
 def parse_level(value):
     if value == "custom" and Config.custom_player is not None:
         return "custom"
@@ -141,13 +163,17 @@ def parse_level(value):
 class Game:
     """One game: the board as 64 values (1 = black, -1 = white, row-major from the top left)."""
 
-    def __init__(self, model_color, level, game_id=None):
+    def __init__(self, model_color, level, game_id=None, start=None):
         self.id = game_id or secrets.token_urlsafe(18)
         self.model_color, self.level = model_color, level
         self.name = None              # optional label, e.g. the opponent's name (several games at once)
-        self.board = np.zeros(64, dtype=np.int8)
-        self.board[[27, 36]], self.board[[28, 35]] = WHITE, BLACK
-        self.to_move = BLACK
+        if start is None:
+            self.board = np.zeros(64, dtype=np.int8)
+            self.board[[27, 36]], self.board[[28, 35]] = WHITE, BLACK
+            self.to_move = BLACK
+        else:
+            self.board, self.to_move = parse_position(start)
+        self.start = None if start is None else self.position_key()   # a set-up starting position, or None
         self.history = []             # {action, color, by, board_before, method}
         self.redo = []                # actions of undone human moves
         self.over, self.winner = False, None
@@ -163,11 +189,12 @@ class Game:
                 "moves": [[m["action"], 1 if m["color"] == "black" else -1, m["by"], m.get("method")]
                           for m in self.history],
                 "redo": self.redo, "last_move": self.last_move, "model_passed": self.model_passed,
-                "model_sequence": self.model_sequence, "name": self.name, "scores": self.scores}
+                "model_sequence": self.model_sequence, "name": self.name, "scores": self.scores,
+                "start": self.start}
 
     @classmethod
     def from_dict(cls, d):
-        game = cls(d["model_color"], d["level"], d["id"])
+        game = cls(d["model_color"], d["level"], d["id"], d.get("start"))
         for action, color, by, method in d["moves"]:
             if game.over or color != game.to_move or action not in set(int(m) for m in game.legal()):
                 raise ValueError(f"stored game {d['id']} doesn't replay")
@@ -296,7 +323,7 @@ class Game:
                "game_over": self.over, "winner": self.winner, "model_color": COLOR_NAME[self.model_color],
                "level": self.level, "can_undo": any(m["by"] == "human" for m in self.history),
                "can_redo": bool(self.redo) and not self.over, "model_moves": self.model_sequence,
-               "name": self.name, "move_number": len(self.history)}
+               "name": self.name, "move_number": len(self.history), "start": self.start}
         if self.last_move:
             out["last_move"] = self.last_move
         if self.model_passed:
@@ -311,7 +338,7 @@ class Game:
                   "board_before": m["board_before"].astype(int).tolist(),
                   **({"method": m["method"]} if m.get("method") else {})} for m in self.history]
         record = {"model": Config.model_name, "name": self.name, "player": level_desc(self.level), "level": self.level,
-                  "model_color": COLOR_NAME[self.model_color], "moves": moves,
+                  "model_color": COLOR_NAME[self.model_color], "start": self.start, "moves": moves,
                   "final_board": self.board.astype(int).tolist(), "black": int((self.board == BLACK).sum()),
                   "white": int((self.board == WHITE).sum()), "finished": self.over}
         os.makedirs(GAMES_DIR, exist_ok=True)
@@ -460,7 +487,7 @@ def new_game():
     if color not in ("black", "white"):
         raise ApiError("model_color must be 'black' or 'white'")
     level = Config.default_level if data.get("level") is None else parse_level(data["level"])
-    game = Game(BLACK if color == "black" else WHITE, level)
+    game = Game(BLACK if color == "black" else WHITE, level, start=data.get("start"))
     if not STORE.create(game.id, game.to_dict(), Config.idle_timeout):
         raise ApiError("the server is busy; try again later", 503)
     with open_game(game.id) as game:
@@ -471,8 +498,8 @@ def new_game():
 @app.route("/api/load_game", methods=["POST"])
 def load_game():
     """A new game continuing from a list of moves (a file saved by /api/export, or any transcript from
-    the standard start). Each move is checked against the rules; passes are inferred. If it is then the
-    model's turn, it moves."""
+    the standard start or the given "start" position). Each move is checked against the rules; passes
+    are inferred. If it is then the model's turn, it moves."""
     data = body()
     rate_limit("new_game", Config.new_games_per_minute)
     color = data.get("model_color", "black")
@@ -481,7 +508,7 @@ def load_game():
     level = Config.default_level if data.get("level") is None else parse_level(data["level"])
     actions = parse_moves(data.get("moves", ""))
     name = parse_name(data.get("name"))
-    game = Game(BLACK if color == "black" else WHITE, level)
+    game = Game(BLACK if color == "black" else WHITE, level, start=data.get("start"))
     game.name = name
     for i, action in enumerate(actions):
         if game.over:
@@ -498,7 +525,8 @@ def load_game():
 
 @app.route("/api/export", methods=["GET"])
 def export_game():
-    """What the page saves to a file: the moves as a transcript, the model's color and the level."""
+    """What the page saves to a file: the moves as a transcript (from "start" when the game began from a
+    set-up position), the model's color and the level."""
     with open_game(game_id_of(request.args.get("game_id")), write=False) as game:
         return jsonify({"format": SAVE_FORMAT, "version": 1,
                         "moves": "".join(notation(m["action"]).lower() for m in game.history),
@@ -506,7 +534,7 @@ def export_game():
                         "move_number": len(game.history),
                         "model": Config.model_name, "saved": time.strftime("%Y-%m-%d %H:%M:%S"),
                         "black": int((game.board == BLACK).sum()), "white": int((game.board == WHITE).sum()),
-                        "finished": game.over})
+                        "finished": game.over, **({"start": game.start} if game.start else {})})
 
 
 @app.route("/api/make_move", methods=["POST"])

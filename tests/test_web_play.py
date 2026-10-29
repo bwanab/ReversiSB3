@@ -295,6 +295,45 @@ class TestWebPlay(unittest.TestCase):
         self.assertEqual(r['winner'], g['winner'])
         self.assertEqual(self.load(saved['moves'] + 'a1').status_code, 400)  # no moves after the end
 
+    def test_set_up_start_position(self):
+        # an arrangement no game can reach (a full top row, a lone black disc), white to move
+        rows = ['bbbbbbbb', '--------', '--------', '---wb---', '---bw---', '--------', '--------', '-------b']
+        start = ' '.join(rows) + ' w'
+        g = self.new(model_color='black', start=start)                 # the person plays white, to move
+        self.assertEqual(g['start'], ''.join(rows) + 'w')
+        self.assertEqual(g['current_player'], 'white')
+        self.assertEqual(g['piece_count'], {'black': 11, 'white': 2})
+        self.assertNotIn('last_move', g)
+        r = self.move(g['game_id'], g['valid_moves'][0]['action']).get_json()
+        self.assertEqual(r['last_move']['player'], 'model')
+        self.assertEqual(self.stored(g['game_id']).start, g['start'])   # replays from the set-up start
+        u = self.c.post('/api/undo', json={'game_id': g['game_id']}).get_json()
+        self.assertEqual(u['board'], g['board'])
+        saved = self.c.get('/api/export', query_string={'game_id': g['game_id']}).get_json()
+        self.assertEqual(saved['start'], g['start'])
+        self.c.post('/api/redo', json={'game_id': g['game_id']})
+        saved = self.c.get('/api/export', query_string={'game_id': g['game_id']}).get_json()
+        loaded = self.load(saved['moves'], model_color='black', start=saved['start']).get_json()
+        again = self.c.get('/api/game_state', query_string={'game_id': g['game_id']}).get_json()
+        self.assertEqual(loaded['board'], again['board'])
+        # the model to move from the start: it moves first; x/o/. accepted
+        m = self.new(model_color='white', start=start.replace('b', 'x').replace('w', 'o').replace('-', '.'))
+        self.assertEqual(m['last_move']['player'], 'model')
+        self.assertIsNone(self.new()['start'])                        # standard start
+
+    def test_start_position_passes_and_errors(self):
+        # black has no move here, white does: white is to move
+        board = ['-'] * 64
+        board[0], board[1] = 'w', 'b'
+        g = self.new(model_color='black', start=''.join(board) + 'b')
+        self.assertEqual(g['current_player'], 'white')
+        self.assertEqual(g['valid_moves'][0]['action'], 2)
+        board[1] = 'w'                                                # nobody can move
+        for bad in (''.join(board) + 'b', 'b' * 64 + 'b', '-' * 64, '-' * 64 + '-', 'q' * 65, 5, ['b'] * 65,
+                    'b' * 300):
+            self.assertEqual(self.c.post('/api/new_game', json={'start': bad}).status_code, 400, bad)
+            self.assertEqual(self.load('', start=bad).status_code, 400, bad)
+
     def test_game_names(self):
         g = self.new()
         gid = g['game_id']

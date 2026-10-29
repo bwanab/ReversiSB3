@@ -9,8 +9,10 @@ let gameState = {
     gameName: null,    // optional label for this game (e.g. the opponent); asked at its first save
     lastData: null,
     hintMode: loadHintMode(),
-    autosave: loadSetting('autosave') === 'true',
-    nameDeclined: false   // the person canceled the name prompt during autosave: don't ask again this game
+    autosave: loadSetting('autosave') !== 'false',   // on unless switched off in this browser
+    nameDeclined: false,  // the person canceled the name prompt during autosave: don't ask again this game
+    editing: false,       // setting up a position by hand ("Set up position")
+    editBoard: null       // the position being set up (8x8, 1 = black, -1 = white, 0 = empty)
 };
 
 function loadSetting(key) {
@@ -123,12 +125,25 @@ function changeHintMode() {
 
 function setupEventListeners() {
     document.getElementById('new-game-btn').addEventListener('click', startNewGame);
-    document.getElementById('undo-btn').addEventListener('click', undoMove);
-    document.getElementById('redo-btn').addEventListener('click', redoMove);
+    // The ☰ menu: each action closes it first (the load-file chooser still opens: same click)
+    const menu = document.getElementById('menu');
+    document.getElementById('menu-btn').addEventListener('click', () => menu.showModal());
+    document.getElementById('menu-close-btn').addEventListener('click', () => menu.close());
+    menu.addEventListener('click', event => {
+        if (event.target === menu) {
+            menu.close();                          // a click on the backdrop
+        }
+    });
+    const fromMenu = action => (...args) => {
+        menu.close();
+        return action(...args);
+    };
+    document.getElementById('undo-btn').addEventListener('click', fromMenu(undoMove));
+    document.getElementById('redo-btn').addEventListener('click', fromMenu(redoMove));
     document.getElementById('copy-moves-btn').addEventListener('click', copyMoves);
     document.getElementById('level').addEventListener('change', changeLevel);
-    document.getElementById('save-btn').addEventListener('click', saveGame);
-    document.getElementById('load-btn').addEventListener('click', () => document.getElementById('load-file').click());
+    document.getElementById('save-btn').addEventListener('click', fromMenu(() => saveGame()));
+    document.getElementById('load-btn').addEventListener('click', fromMenu(() => document.getElementById('load-file').click()));
     document.getElementById('load-file').addEventListener('change', loadGameFile);
     document.getElementById('game-name').addEventListener('click', renameGame);
     const autosave = document.getElementById('autosave');
@@ -143,6 +158,16 @@ function setupEventListeners() {
     const hints = document.getElementById('hint-mode');
     hints.value = gameState.hintMode;
     hints.addEventListener('change', changeHintMode);
+    document.getElementById('edit-btn').addEventListener('click', fromMenu(enterEditMode));
+    document.getElementById('edit-clear-btn').addEventListener('click', () => setEditBoard(emptyBoard()));
+    document.getElementById('edit-standard-btn').addEventListener('click', () => {
+        document.getElementById('edit-to-move').value = 'black';
+        setEditBoard(standardBoard());
+    });
+    document.getElementById('edit-to-move').addEventListener('change', renderEditBoard);
+    document.getElementById('edit-position').addEventListener('change', applyPositionText);
+    document.getElementById('edit-start-btn').addEventListener('click', playFromEditedPosition);
+    document.getElementById('edit-cancel-btn').addEventListener('click', exitEditMode);
 }
 
 function initializeBoard() {
@@ -165,7 +190,127 @@ function initializeBoard() {
     }
 }
 
+// ---- Setting up a position by hand ----
+// Any arrangement is allowed (it needn't be reachable from the standard start); the server only
+// requires that someone can move. Model color and strength come from the controls.
+
+function emptyBoard() {
+    return Array.from({ length: 8 }, () => Array(8).fill(0));
+}
+
+function standardBoard() {
+    const board = emptyBoard();
+    board[3][3] = board[4][4] = -1;
+    board[3][4] = board[4][3] = 1;
+    return board;
+}
+
+// The position as the server takes it: 64 squares row by row from A1 (b/w/-), then the side to move
+function positionText(board, toMove) {
+    return board.flat().map(v => (v === 1 ? 'b' : v === -1 ? 'w' : '-')).join('') + toMove[0];
+}
+
+function enterEditMode() {
+    gameState.editing = true;
+    document.getElementById('edit-to-move').value = gameState.board && gameState.currentPlayer ? gameState.currentPlayer : 'black';
+    document.getElementById('edit-panel').hidden = false;
+    document.getElementById('board').classList.add('editing');
+    ['edit-btn', 'undo-btn', 'redo-btn', 'save-btn'].forEach(id => { document.getElementById(id).disabled = true; });
+    document.getElementById('game-record').style.display = 'none';
+    document.getElementById('game-status').textContent = '';
+    document.getElementById('score-info').textContent = '';
+    setEditBoard(gameState.board ? gameState.board.map(row => row.slice()) : standardBoard());
+}
+
+function hideEditor() {
+    gameState.editing = false;
+    document.getElementById('edit-panel').hidden = true;
+    document.getElementById('board').classList.remove('editing');
+    document.getElementById('edit-btn').disabled = false;
+}
+
+function exitEditMode() {
+    hideEditor();
+    if (gameState.lastData) {
+        updateGameState(gameState.lastData);          // back to the game as it was
+    } else {
+        renderBoard(emptyBoard());
+        document.getElementById('turn-text').textContent = 'Click "New Game" to start';
+        document.getElementById('black-score').textContent = '2';
+        document.getElementById('white-score').textContent = '2';
+    }
+}
+
+function setEditBoard(board) {
+    gameState.editBoard = board;
+    renderEditBoard();
+}
+
+function renderEditBoard() {
+    const board = gameState.editBoard;
+    const toMove = document.getElementById('edit-to-move').value;
+    renderBoard(board);
+    const flat = board.flat();
+    document.getElementById('black-score').textContent = flat.filter(v => v === 1).length;
+    document.getElementById('white-score').textContent = flat.filter(v => v === -1).length;
+    document.getElementById('turn-text').textContent = `Setting up a position: ${capitalizeFirst(toMove)} to move`;
+    document.getElementById('edit-position').value = positionText(board, toMove);
+}
+
+// Click in edit mode: empty -> black -> white -> empty
+function cycleSquare(row, col) {
+    const next = { 0: 1, 1: -1, '-1': 0 };
+    gameState.editBoard[row][col] = next[gameState.editBoard[row][col]];
+    renderEditBoard();
+}
+
+// A pasted position (same format as positionText; also x/o/* and . accepted, whitespace ignored)
+function applyPositionText() {
+    const text = document.getElementById('edit-position').value.replace(/\s+/g, '').toLowerCase();
+    const square = { b: 1, x: 1, '*': 1, w: -1, o: -1, '-': 0, '.': 0, e: 0 };
+    const side = { b: 'black', x: 'black', w: 'white', o: 'white' };
+    if (text.length !== 65 || [...text.slice(0, 64)].some(c => !(c in square)) || !(text[64] in side)) {
+        showError('A position is 64 squares (b, w, -) row by row from A1, then the side to move (b or w)');
+        renderEditBoard();
+        return;
+    }
+    const board = emptyBoard();
+    [...text.slice(0, 64)].forEach((c, i) => { board[Math.floor(i / 8)][i % 8] = square[c]; });
+    document.getElementById('edit-to-move').value = side[text[64]];
+    setEditBoard(board);
+}
+
+async function playFromEditedPosition() {
+    const levelValue = document.getElementById('level').value;
+    try {
+        const response = await fetch('/api/new_game', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                model_color: document.getElementById('model-color').value,
+                level: levelValue === '' ? null : (levelValue === 'custom' ? 'custom' : Number(levelValue)),
+                start: positionText(gameState.editBoard, document.getElementById('edit-to-move').value)
+            })
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            showError(data.error || 'Failed to start from this position');
+            return;
+        }
+        hideEditor();
+        document.getElementById('last-move').textContent = '-';
+        updateGameState(data);
+    } catch (error) {
+        showError('Network error: ' + error.message);
+    }
+}
+
 async function startNewGame() {
+    if (gameState.editing) {
+        exitEditMode();
+    }
     const modelColor = document.getElementById('model-color').value;
     const levelValue = document.getElementById('level').value;
     gameState.modelColor = modelColor;
@@ -195,6 +340,10 @@ async function startNewGame() {
 }
 
 async function handleCellClick(row, col) {
+    if (gameState.editing) {
+        cycleSquare(row, col);
+        return;
+    }
     if (gameState.gameOver || !gameState.gameId) {
         return;
     }
@@ -349,7 +498,7 @@ async function fetchScores(gameId, moveNumber) {
         const response = await fetch('/api/scores?game_id=' + encodeURIComponent(gameId));
         const data = await response.json();
         if (gameState.gameId !== gameId || !gameState.lastData || gameState.lastData.move_number !== moveNumber
-                || !showScores()) {
+                || !showScores() || gameState.editing) {
             return;                                   // the position changed meanwhile
         }
         if (!response.ok) {
@@ -535,13 +684,17 @@ async function loadGameFile(event) {
         return;
     }
     const text = await file.text();
+    if (gameState.editing) {
+        exitEditMode();
+    }
     let request;
     try {
         const saved = JSON.parse(text);
         if (!saved || typeof saved.moves === 'undefined') {
             throw new Error('not a saved game');
         }
-        request = { moves: saved.moves, model_color: saved.model_color, level: saved.level, name: saved.name };
+        request = { moves: saved.moves, model_color: saved.model_color, level: saved.level, name: saved.name,
+                    start: saved.start || null };
     } catch (e) {
         const levelValue = document.getElementById('level').value;
         request = {
