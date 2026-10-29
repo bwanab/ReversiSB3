@@ -4,6 +4,7 @@ Tests for Behavioral Cloning (BC) system.
 Tests dataset generation, BC training, and model functionality.
 """
 
+import glob
 import unittest
 import os
 import pickle
@@ -175,6 +176,8 @@ class TestBCTraining(unittest.TestCase):
             os.remove(cls.test_dataset_file)
         if os.path.exists(cls.test_model_path):
             os.remove(cls.test_model_path)
+        for path in glob.glob(f"models/{cls.test_model_name}_epoch*_CNN_test.zip"):   # bc_train's per-epoch copies
+            os.remove(path)
 
     def test_training_history(self):
         """Test that training history is tracked."""
@@ -381,6 +384,8 @@ class TestBCIntegration(unittest.TestCase):
                 os.remove(dataset_file)
             if os.path.exists(bc_model_path):
                 os.remove(bc_model_path)
+            for path in glob.glob(f"models/{bc_model_name}_epoch*_CNN_test.zip"):
+                os.remove(path)
 
 
 def run_bc_tests():

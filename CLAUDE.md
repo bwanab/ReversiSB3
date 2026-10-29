@@ -318,8 +318,25 @@ before any `-o Edax` play or `edax-curriculum` training: `uv run python edax_ser
 
 ### Model Storage
 - `models/`: Trained model files (.zip format)
-- `checkpoints/`: Training checkpoints saved every 50k steps
-- `models/*/log/`: TensorBoard logs for training metrics
+- `checkpoints/`: PPO training checkpoints saved every 50k steps (created by `sb-train.py`)
+- `models/*.log/`: TensorBoard logs of PPO runs
+
+**Kept models (cleanup 2026-10-29).** `models/` and `checkpoints/` are git-ignored with no other copy.
+Everything else was deleted (the PPO runs and their checkpoints, per-epoch copies, superseded and null-result
+experiments); their results stay in the tables below and the logs. The baselines:
+
+| Model | Purpose |
+|---|---|
+| `r256x12_mid1` | Best network: `web_play.py`'s model and the reference for every result since step 21 |
+| `r256x12_bc` | 256x12 BC base: the round scripts (`dagger_round.sh`, `teacher_round.sh`, `self_teacher_round.sh`) fine-tune from it |
+| `r256x12_sdag1` | Previous best (steps 15-20); played the positions for `mid1`'s round |
+| `r256x12_dagger` | 256x12 Edax labels + DAgger, before search-DAgger; the step 11-15 search results |
+| `r192x10_dagger` | Best 192x10: the network-size comparison |
+| `resnet128x8_bc20cos_bconly` | 128x8 BC recipe (decision A), base of the first Edax-label runs; smallest useful ResNet, for quick tests |
+| `edax_dagger1` | 128x8 Edax labels + DAgger: the reference in the 192x10 tables |
+| `edax_bc_pretrained` | Old CNN, RL vs Edax from the standard opening: the memorization finding (historical) |
+
+Old scripts and tables still name deleted models (e.g. `edax_bc_playoff.sh`); they are history.
 
 ### Training Data
 - Models are saved with naming convention: `{MODEL_NAME}_CNN_test.zip`
