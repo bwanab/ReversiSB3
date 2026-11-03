@@ -36,8 +36,9 @@
                         <option value="both">Both</option>
                     </select>
                 </div>
-                <button id="new-game-btn" class="btn btn-primary">New Game</button>
-                <button id="menu-btn" class="menu-btn" title="Menu: undo, redo, save, load, set up a position"
+                <button id="load-btn" class="btn btn-primary"
+                        title="Continue a saved game, or a move list like f5d6c3 (the model takes the color chosen above)">Load Game</button>
+                <button id="menu-btn" class="menu-btn" title="Menu: new game, undo, redo, save, set up a position"
                         aria-label="Menu" aria-haspopup="dialog">☰</button>
             </div>
 
@@ -47,14 +48,14 @@
                     <span>Menu</span>
                     <button id="menu-close-btn" class="menu-close" aria-label="Close">✕</button>
                 </div>
+                <button id="new-game-btn" class="btn btn-secondary"
+                        title="Start a new game from the standard position (model color and strength from the controls)">▶ New game</button>
                 <div class="menu-row">
                     <button id="undo-btn" class="btn btn-secondary" disabled>⟲ Undo</button>
                     <button id="redo-btn" class="btn btn-secondary" disabled>⟳ Redo</button>
                 </div>
                 <button id="save-btn" class="btn btn-secondary" disabled
                         title="Download this game (moves, model color, level) to continue later">💾 Save game</button>
-                <button id="load-btn" class="btn btn-secondary"
-                        title="Continue a saved game, or a move list like f5d6c3 (the model takes the color chosen above)">📂 Load game</button>
                 <label for="autosave" class="menu-check" title="Save the game after each of your moves, once the model has replied">
                     <input type="checkbox" id="autosave">
                     Autosave
@@ -79,7 +80,7 @@
                     </div>
                 </div>
                 <div id="turn-indicator" class="turn-indicator">
-                    <span id="turn-text">Click "New Game" to start</span>
+                    <span id="turn-text">Load a game, or start one from the ☰ menu</span>
                     <button id="game-name" class="game-name" title="Rename this game" hidden></button>
                     <div id="score-info" class="score-info"></div>
                 </div>
@@ -103,6 +104,7 @@
                     <input id="edit-position" class="position-input" spellcheck="false" autocomplete="off"
                            title="64 squares row by row from A1 (b = black, w = white, - = empty), then the side to move; paste one and press Enter">
                 </div>
+                <p id="edit-roles" class="edit-help"></p>
                 <div class="edit-row">
                     <button id="edit-start-btn" class="btn btn-primary">Play from here</button>
                     <button id="edit-cancel-btn" class="btn btn-secondary">Cancel</button>

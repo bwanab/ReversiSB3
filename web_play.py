@@ -488,6 +488,7 @@ def new_game():
         raise ApiError("model_color must be 'black' or 'white'")
     level = Config.default_level if data.get("level") is None else parse_level(data["level"])
     game = Game(BLACK if color == "black" else WHITE, level, start=data.get("start"))
+    game.name = parse_name(data.get("name"))
     if not STORE.create(game.id, game.to_dict(), Config.idle_timeout):
         raise ApiError("the server is busy; try again later", 503)
     with open_game(game.id) as game:

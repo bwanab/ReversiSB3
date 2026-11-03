@@ -320,6 +320,11 @@ class TestWebPlay(unittest.TestCase):
         m = self.new(model_color='white', start=start.replace('b', 'x').replace('w', 'o').replace('-', '.'))
         self.assertEqual(m['last_move']['player'], 'model')
         self.assertIsNone(self.new()['start'])                        # standard start
+        # a position saved from the editor before playing: no moves, a start and a name
+        e = self.load('', model_color='black', start=start, name='Dana').get_json()
+        self.assertEqual((e['start'], e['current_player'], e['name']), (g['start'], 'white', 'Dana'))
+        self.assertEqual(self.new(start=start, name='Eve')['name'], 'Eve')
+        self.assertEqual(self.c.post('/api/new_game', json={'name': '../x'}).status_code, 400)
 
     def test_start_position_passes_and_errors(self):
         # black has no move here, white does: white is to move

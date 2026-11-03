@@ -58,9 +58,10 @@ model move's `method` starts with its level (e.g. `level 7: MCTS 100 simulations
 ## Page options
 
 - **Model plays as**: black or white, for the next new game.
-- **Strength**: the level (1-10, or Custom); sent with "New Game", and changes during a game apply to
+- **Strength**: the level (1-10, or Custom); sent with New game, and changes during a game apply to
   that game from the model's next move.
-- **Menu** (☰, right of New Game): a dialog with Undo, Redo, Save game, Load game, Autosave and Set up
+- **Load Game** (the main button): see Load game below.
+- **Menu** (☰, right of Load Game): a dialog with New game, Undo, Redo, Save game, Autosave and Set up
   position (below). Choosing an action closes it; ✕, Esc or a click outside closes it too.
 - **Save game**: downloads the game as a small JSON file (see `/api/export`), e.g. to continue a long
   game against a person elsewhere after a wait. The first save of a game asks for a **name** (e.g.
@@ -86,7 +87,10 @@ model move's `method` starts with its level (e.g. `level 7: MCTS 100 simulations
   move, Clear board, Standard start, and a **Position** text box showing the position as text (64
   squares row by row from A1, `b`/`w`/`-`, then the side to move); paste one there and press Enter to
   set the board. **Play from here** starts a new game from it with the model color and strength chosen
-  in the controls (the model moves first if it is to move); Cancel returns to the game as it was. Any
+  in the controls (the model moves first if it is to move); a line above it says which color each side
+  plays and who moves first. Cancel returns to the game as it was. **Save game** in edit mode saves the
+  position before playing it (a save with no moves, the `start`, and the model color, level and name
+  chosen; Load game continues it), e.g. while waiting for an online opponent's first move. Any
   arrangement is accepted, reachable from the standard start or not, as long as someone can move; if
   the side chosen to move has no legal move, the other side moves first. Saved games keep the
   starting position (`start` in `/api/export`) and load back from it.
@@ -191,8 +195,8 @@ The game page.
 
 ### `POST /api/new_game`
 
-Request: `{"model_color": "black" | "white", "level": 1-10 | "custom", "start": "<position>"}`, all
-optional (defaults: `"black"`, the server's default level, the standard start). Response: the state of
+Request: `{"model_color": "black" | "white", "level": 1-10 | "custom", "start": "<position>", "name":
+"Alice"}`, all optional (defaults: `"black"`, the server's default level, the standard start, no name). Response: the state of
 the new game, after the model's first move(s) if the model is to move.
 
 `start` sets up any position (it needn't be reachable from the standard start): 64 squares row by row

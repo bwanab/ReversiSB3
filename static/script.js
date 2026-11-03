@@ -12,7 +12,8 @@ let gameState = {
     autosave: loadSetting('autosave') !== 'false',   // on unless switched off in this browser
     nameDeclined: false,  // the person canceled the name prompt during autosave: don't ask again this game
     editing: false,       // setting up a position by hand ("Set up position")
-    editBoard: null       // the position being set up (8x8, 1 = black, -1 = white, 0 = empty)
+    editBoard: null,      // the position being set up (8x8, 1 = black, -1 = white, 0 = empty)
+    editName: null        // a name given when saving the set-up position (kept for "Play from here")
 };
 
 function loadSetting(key) {
@@ -124,8 +125,8 @@ function changeHintMode() {
 }
 
 function setupEventListeners() {
-    document.getElementById('new-game-btn').addEventListener('click', startNewGame);
-    // The ☰ menu: each action closes it first (the load-file chooser still opens: same click)
+    document.getElementById('load-btn').addEventListener('click', () => document.getElementById('load-file').click());
+    // The ☰ menu: each action closes it first
     const menu = document.getElementById('menu');
     document.getElementById('menu-btn').addEventListener('click', () => menu.showModal());
     document.getElementById('menu-close-btn').addEventListener('click', () => menu.close());
@@ -138,12 +139,12 @@ function setupEventListeners() {
         menu.close();
         return action(...args);
     };
+    document.getElementById('new-game-btn').addEventListener('click', fromMenu(startNewGame));
     document.getElementById('undo-btn').addEventListener('click', fromMenu(undoMove));
     document.getElementById('redo-btn').addEventListener('click', fromMenu(redoMove));
     document.getElementById('copy-moves-btn').addEventListener('click', copyMoves);
     document.getElementById('level').addEventListener('change', changeLevel);
     document.getElementById('save-btn').addEventListener('click', fromMenu(() => saveGame()));
-    document.getElementById('load-btn').addEventListener('click', fromMenu(() => document.getElementById('load-file').click()));
     document.getElementById('load-file').addEventListener('change', loadGameFile);
     document.getElementById('game-name').addEventListener('click', renameGame);
     const autosave = document.getElementById('autosave');
@@ -165,6 +166,11 @@ function setupEventListeners() {
         setEditBoard(standardBoard());
     });
     document.getElementById('edit-to-move').addEventListener('change', renderEditBoard);
+    document.getElementById('model-color').addEventListener('change', () => {
+        if (gameState.editing) {
+            renderEditBoard();                     // the roles line names the model's color
+        }
+    });
     document.getElementById('edit-position').addEventListener('change', applyPositionText);
     document.getElementById('edit-start-btn').addEventListener('click', playFromEditedPosition);
     document.getElementById('edit-cancel-btn').addEventListener('click', exitEditMode);
@@ -215,7 +221,8 @@ function enterEditMode() {
     document.getElementById('edit-to-move').value = gameState.board && gameState.currentPlayer ? gameState.currentPlayer : 'black';
     document.getElementById('edit-panel').hidden = false;
     document.getElementById('board').classList.add('editing');
-    ['edit-btn', 'undo-btn', 'redo-btn', 'save-btn'].forEach(id => { document.getElementById(id).disabled = true; });
+    gameState.editName = null;
+    ['edit-btn', 'undo-btn', 'redo-btn'].forEach(id => { document.getElementById(id).disabled = true; });
     document.getElementById('game-record').style.display = 'none';
     document.getElementById('game-status').textContent = '';
     document.getElementById('score-info').textContent = '';
@@ -227,6 +234,7 @@ function hideEditor() {
     document.getElementById('edit-panel').hidden = true;
     document.getElementById('board').classList.remove('editing');
     document.getElementById('edit-btn').disabled = false;
+    document.getElementById('save-btn').disabled = !gameState.gameId;
 }
 
 function exitEditMode() {
@@ -235,7 +243,7 @@ function exitEditMode() {
         updateGameState(gameState.lastData);          // back to the game as it was
     } else {
         renderBoard(emptyBoard());
-        document.getElementById('turn-text').textContent = 'Click "New Game" to start';
+        document.getElementById('turn-text').textContent = 'Load a game, or start one from the ☰ menu';
         document.getElementById('black-score').textContent = '2';
         document.getElementById('white-score').textContent = '2';
     }
@@ -255,6 +263,13 @@ function renderEditBoard() {
     document.getElementById('white-score').textContent = flat.filter(v => v === -1).length;
     document.getElementById('turn-text').textContent = `Setting up a position: ${capitalizeFirst(toMove)} to move`;
     document.getElementById('edit-position').value = positionText(board, toMove);
+    const model = document.getElementById('model-color').value;
+    const person = model === 'black' ? 'white' : 'black';
+    const first = toMove === model ? 'the model moves first' : 'you move first';
+    document.getElementById('edit-roles').textContent =
+        `Play from here: you play ${capitalizeFirst(person)}, the model plays ${capitalizeFirst(model)} `
+        + `(Model plays as, above); ${capitalizeFirst(toMove)} is to move, so ${first}.`;
+    document.getElementById('save-btn').disabled = false;
 }
 
 // Click in edit mode: empty -> black -> white -> empty
@@ -291,7 +306,8 @@ async function playFromEditedPosition() {
             body: JSON.stringify({
                 model_color: document.getElementById('model-color').value,
                 level: levelValue === '' ? null : (levelValue === 'custom' ? 'custom' : Number(levelValue)),
-                start: positionText(gameState.editBoard, document.getElementById('edit-to-move').value)
+                start: positionText(gameState.editBoard, document.getElementById('edit-to-move').value),
+                name: gameState.editName
             })
         });
         const data = await response.json();
@@ -617,6 +633,10 @@ function fileSafe(name) {
 // Save: download the game's moves, model color, level and name (GET /api/export) as a small JSON
 // file named reversi-<name>-m<moves>.json; the first save of an unnamed game asks for a name
 async function saveGame(options = {}) {
+    if (gameState.editing) {
+        saveEditedPosition();
+        return;
+    }
     if (!gameState.gameId) {
         return;
     }
@@ -641,19 +661,45 @@ async function saveGame(options = {}) {
             showError(data.error || 'Failed to save the game');
             return;
         }
-        const moveNumber = String(data.move_number).padStart(2, '0');
-        const label = data.name ? fileSafe(data.name) : '';
-        const blob = new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' });
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = label ? `reversi-${label}-m${moveNumber}.json` : `reversi-m${moveNumber}.json`;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+        downloadSave(data);
     } catch (error) {
         showError('Network error: ' + error.message);
     }
+}
+
+// Download a save (the /api/export format) as reversi-<name>-m<NN>.json
+function downloadSave(data) {
+    const moveNumber = String(data.move_number).padStart(2, '0');
+    const label = data.name ? fileSafe(data.name) : '';
+    const blob = new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = label ? `reversi-${label}-m${moveNumber}.json` : `reversi-m${moveNumber}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+}
+
+// Save the position being set up, before playing it: a save with no moves (Load game plays it from
+// its start with its model color, level and name); the name is also kept for "Play from here"
+function saveEditedPosition() {
+    const name = askName(gameState.editName || '');
+    if (name === null) {
+        return;
+    }
+    gameState.editName = name || null;
+    const levelValue = document.getElementById('level').value;
+    const board = gameState.editBoard;
+    downloadSave({
+        format: 'reversisb3-game', version: 1, moves: '',
+        start: positionText(board, document.getElementById('edit-to-move').value),
+        model_color: document.getElementById('model-color').value,
+        level: levelValue === '' ? null : (levelValue === 'custom' ? 'custom' : Number(levelValue)),
+        name: gameState.editName, move_number: 0,
+        black: board.flat().filter(v => v === 1).length, white: board.flat().filter(v => v === -1).length,
+        finished: false
+    });
 }
 
 // The game name in a file name: reversi-<name>-m<NN>.json (browsers may add " (1)"), or for a move
