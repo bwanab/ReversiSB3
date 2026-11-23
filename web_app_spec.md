@@ -305,9 +305,11 @@ The game's moves:
 
 ## Game records
 
-Unless `--no-record`, every game is saved to `games/<YYYYmmdd-HHMMSS>_<first 8 characters of the id>.json`,
-rewritten after each move, undo and redo so the file matches the game as it stands (lines abandoned by
-undo are not kept):
+Unless `--no-record`, every game is saved under `games/`, rewritten after each move, undo and redo so
+the file matches the game as it stands (lines abandoned by undo are not kept). Named games share one
+file at `games/<name>.json` (so resuming via Load game keeps a single record per logical game);
+unnamed games use `games/<YYYYmmdd-HHMMSS>_<first 8 characters of the id>.json`. Renaming moves the
+file; naming a game whose name is already taken by a different game is refused (409):
 
 ```json
 {

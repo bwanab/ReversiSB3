@@ -636,10 +636,12 @@ squares (solver), else from one MCTS 400 search (each move's average value -> 16
 On the M1 (2026-10-11, by hand): level 10 plays reasonably fast; score hints add ~1-2 s per turn until
 the endgame (then the solver makes them quick).
 
-**Recording and grading games** (2026-10-09): `web_play.py` saves every game to
-`games/<start time>_<model>_model-<color>.json` (rewritten after each move, undo and redo, so the file
-matches the board; moves with color, who played them, the board before, how the model chose its move,
-final result). `analyze_games.py games/*.json [-v]` grades the opponent's moves with Egaroucid (level
+**Recording and grading games** (2026-10-09): `web_play.py` saves every game under `games/`, rewritten
+after each move, undo and redo, so the file matches the board (moves with color, who played them, the
+board before, how the model chose its move, final result). Named games share one file
+`games/<name>.json` (so resuming via Load game keeps a single record per logical game); unnamed games
+use `<start>_<id[:8]>.json`. Renaming moves the file; naming a game whose name is already taken by a
+different game is refused (409). `analyze_games.py games/*.json [-v]` grades the opponent's moves with Egaroucid (level
 14, every move scored) next to the probability our policy gave them, by phase: do the opponent's
 "unlikely" moves (policy < 5%) cost discs (its mistakes) or not (a policy blind spot the search may
 not explore)? Prompted by the observation that Piccolo often plays moves the policy ranks near the

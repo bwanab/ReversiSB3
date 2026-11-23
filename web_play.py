@@ -44,6 +44,45 @@ SAVE_FORMAT = "reversisb3-game"
 NAME_RE = re.compile(r"[\w .'-]{1,40}")         # game names: letters (any script), digits, space _ . ' -
 
 
+def game_path(name, started, game_id):
+    """Where a game's record lives on disk. Named games share one file (so resuming them doesn't
+    scatter fragments); unnamed games use <start>_<id prefix>.json."""
+    if name:
+        return os.path.join(GAMES_DIR, f"{name}.json")
+    return os.path.join(GAMES_DIR, f"{started}_{game_id[:8]}.json")
+
+
+def read_record(path):
+    """The saved game at `path`, or None if it doesn't exist or can't be read."""
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _same_file(a, b):
+    """True if both exist and refer to the same file (so a case-insensitive FS doesn't remove what we just wrote)."""
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return False
+
+
+def can_adopt_name(stored, game):
+    """True if `game` can take over the file holding `stored` (absent, or an earlier state of
+    `game`: same start position and its moves are a prefix of `game.history`)."""
+    if stored is None:
+        return True
+    if stored.get("start") != game.start:
+        return False
+    stored_actions = [m["action"] for m in stored.get("moves", [])]
+    cur_actions = [m["action"] for m in game.history]
+    if len(stored_actions) > len(cur_actions):
+        return False
+    return stored_actions == cur_actions[:len(stored_actions)]
+
+
 class Config:
     """Server settings (set from the command line in main())."""
     model = None
@@ -121,7 +160,10 @@ def parse_name(value):
         return None
     if not isinstance(value, str) or not NAME_RE.fullmatch(value.strip()) or not value.strip():
         raise ApiError("name: up to 40 letters, digits, spaces and _ . ' -")
-    return value.strip()
+    name = value.strip()
+    if name in (".", "..") or name.startswith("."):      # names are used as file names; no hidden/traversal
+        raise ApiError("name can't start with a dot")
+    return name
 
 
 POSITION_CHARS = {**dict.fromkeys("bx*", BLACK), **dict.fromkeys("wo", WHITE), **dict.fromkeys("-.e", 0)}
@@ -182,6 +224,7 @@ class Game:
         self.model_passed = False
         self.scores = None            # cached move scores for the current position (see move_scores)
         self.started = time.strftime("%Y%m%d-%H%M%S")
+        self.saved_path = None        # the file this game last wrote (named games move file on rename)
 
     def to_dict(self):
         """What the store keeps: the moves, not the boards (from_dict replays them by the rules)."""
@@ -190,7 +233,7 @@ class Game:
                           for m in self.history],
                 "redo": self.redo, "last_move": self.last_move, "model_passed": self.model_passed,
                 "model_sequence": self.model_sequence, "name": self.name, "scores": self.scores,
-                "start": self.start}
+                "start": self.start, "saved_path": self.saved_path}
 
     @classmethod
     def from_dict(cls, d):
@@ -203,6 +246,7 @@ class Game:
         game.last_move, game.model_passed = d["last_move"], d["model_passed"]
         game.model_sequence = list(d.get("model_sequence", []))
         game.name = d.get("name")
+        game.saved_path = d.get("saved_path")
         scores = d.get("scores")
         game.scores = scores if scores and scores.get("position") == game.position_key() else None
         return game
@@ -331,7 +375,8 @@ class Game:
         return out
 
     def save(self):
-        """Write the game as it stands to games/<start time>_<id prefix>.json (see web_app_spec.md)."""
+        """Write the game as it stands to games/<name>.json (named) or games/<start time>_<id prefix>.json
+        (see web_app_spec.md). A rename moves the file (writes the new one, then removes the old)."""
         if not Config.record or not self.history:
             return
         moves = [{"square": notation(m["action"]), "action": m["action"], "color": m["color"], "by": m["by"],
@@ -342,12 +387,19 @@ class Game:
                   "final_board": self.board.astype(int).tolist(), "black": int((self.board == BLACK).sum()),
                   "white": int((self.board == WHITE).sum()), "finished": self.over}
         os.makedirs(GAMES_DIR, exist_ok=True)
-        path = os.path.join(GAMES_DIR, f"{self.started}_{self.id[:8]}.json")   # server-made name only
+        target = game_path(self.name, self.started, self.id)
         try:
-            with open(path, "w") as f:
+            with open(target, "w") as f:
                 json.dump(record, f, indent=1)
         except OSError:
-            log.exception("could not save game record %s", path)
+            log.exception("could not save game record %s", target)
+            return
+        if self.saved_path and self.saved_path != target and not _same_file(self.saved_path, target):
+            try:
+                os.remove(self.saved_path)
+            except OSError:
+                log.exception("could not remove old game record %s", self.saved_path)
+        self.saved_path = target
 
 
 def model_move(game):
@@ -422,8 +474,8 @@ def open_game(game_id, write=True):
             game = Game.from_dict(data)
             yield game
             if write:
+                game.save()                                       # may update game.saved_path
                 STORE.save(game_id, game.to_dict(), Config.idle_timeout)
-                game.save()
             else:
                 STORE.save(game_id, data, Config.idle_timeout)
     except StoreBusy:
@@ -489,11 +541,20 @@ def new_game():
     level = Config.default_level if data.get("level") is None else parse_level(data["level"])
     game = Game(BLACK if color == "black" else WHITE, level, start=data.get("start"))
     game.name = parse_name(data.get("name"))
+    if game.name:
+        ensure_name_free(game, game.name)
     if not STORE.create(game.id, game.to_dict(), Config.idle_timeout):
         raise ApiError("the server is busy; try again later", 503)
     with open_game(game.id) as game:
         game.model_moves()
         return jsonify(game.state())
+
+
+def ensure_name_free(game, name):
+    """Raise ApiError(409) if a different game is already saved as `name`."""
+    stored = read_record(game_path(name, game.started, game.id))
+    if not can_adopt_name(stored, game):
+        raise ApiError(f"a different game is already saved as '{name}'; pick another name", 409)
 
 
 @app.route("/api/load_game", methods=["POST"])
@@ -517,6 +578,8 @@ def load_game():
         if action not in set(int(m) for m in game.legal()):
             raise ApiError(f"move {i + 1} ({notation(action).lower()}) is illegal for {COLOR_NAME[game.to_move]}")
         game.apply(action, "model" if game.to_move == game.model_color else "human")
+    if name:
+        ensure_name_free(game, name)
     if not STORE.create(game.id, game.to_dict(), Config.idle_timeout):
         raise ApiError("the server is busy; try again later", 503)
     with open_game(game.id) as game:
@@ -582,6 +645,8 @@ def set_name():
     data = body()
     gid, name = game_id_of(data.get("game_id")), parse_name(data.get("name"))
     with open_game(gid) as game:
+        if name and name != game.name:
+            ensure_name_free(game, name)
         game.name = name
         return jsonify({"game_id": game.id, "name": name})
 

@@ -346,7 +346,7 @@ class TestWebPlay(unittest.TestCase):
         for good in ('Alice', 'José María', "O'Brien-2", 'game.3'):
             r = self.c.post('/api/set_name', json={'game_id': gid, 'name': good})
             self.assertEqual(r.get_json()['name'], good)
-        for bad in ('../etc/passwd', 'a/b', '<script>', 'x' * 41, 5, ['a'], '   '):
+        for bad in ('../etc/passwd', 'a/b', '<script>', 'x' * 41, 5, ['a'], '   ', '.', '..', '.hidden'):
             self.assertEqual(self.c.post('/api/set_name', json={'game_id': gid, 'name': bad}).status_code, 400, bad)
         self.c.post('/api/set_name', json={'game_id': gid, 'name': '  Bob  '})
         state = self.c.get('/api/game_state', query_string={'game_id': gid}).get_json()
@@ -419,7 +419,67 @@ class TestWebPlay(unittest.TestCase):
                 self.assertEqual([m['by'] for m in rec['moves']], ['human', 'model'])
                 self.assertEqual(rec['level'], 3)
                 self.c.post('/api/set_name', json={'game_id': g['game_id'], 'name': 'Carol'})
+                files = glob.glob(os.path.join(d, '*.json'))
+                self.assertEqual([os.path.basename(f) for f in files], ['Carol.json'])  # renamed moves the file
                 self.assertEqual(json.load(open(files[0]))['name'], 'Carol')
+            finally:
+                wp.GAMES_DIR = games_dir
+
+    def test_named_game_single_file(self):
+        """A named game writes to <name>.json and every move updates the same file."""
+        with tempfile.TemporaryDirectory() as d:
+            wp.Config.record, games_dir, wp.GAMES_DIR = True, wp.GAMES_DIR, d
+            try:
+                g = self.new(name='Dana')
+                for _ in range(3):
+                    g = self.move(g['game_id'], g['valid_moves'][0]['action']).get_json()
+                files = sorted(os.path.basename(f) for f in glob.glob(os.path.join(d, '*.json')))
+                self.assertEqual(files, ['Dana.json'])
+                rec = json.load(open(os.path.join(d, 'Dana.json')))
+                self.assertEqual(len(rec['moves']), 2 * 3)                          # 3 human + 3 model
+                self.c.post('/api/set_name', json={'game_id': g['game_id'], 'name': ''})
+                files = sorted(os.path.basename(f) for f in glob.glob(os.path.join(d, '*.json')))
+                self.assertEqual(len(files), 1)
+                self.assertNotEqual(files, ['Dana.json'])                           # cleared → id-based path
+            finally:
+                wp.GAMES_DIR = games_dir
+
+    def test_name_collision_refused(self):
+        """Renaming, loading or starting a new game under a taken name returns 409."""
+        with tempfile.TemporaryDirectory() as d:
+            wp.Config.record, games_dir, wp.GAMES_DIR = True, wp.GAMES_DIR, d
+            try:
+                a = self.new(name='Badger')
+                ga = self.move(a['game_id'], a['valid_moves'][0]['action']).get_json()
+                saved = self.c.get('/api/export', query_string={'game_id': ga['game_id']}).get_json()
+                b = self.new()
+                self.move(b['game_id'], b['valid_moves'][1]['action'])
+                r = self.c.post('/api/set_name', json={'game_id': b['game_id'], 'name': 'Badger'})
+                self.assertEqual(r.status_code, 409)
+                r = self.c.post('/api/new_game', json={'model_color': 'white', 'name': 'Badger'})
+                self.assertEqual(r.status_code, 409)
+                r = self.load('f5', name='Badger')
+                self.assertEqual(r.status_code, 409)
+                r = self.load(saved['moves'], model_color=saved['model_color'], name='Badger')  # same game: fine
+                self.assertEqual(r.status_code, 200)
+                files = sorted(os.path.basename(f) for f in glob.glob(os.path.join(d, '*.json')))
+                self.assertIn('Badger.json', files)                                 # Badger.json preserved
+            finally:
+                wp.GAMES_DIR = games_dir
+
+    def test_load_resumes_named_file(self):
+        """Loading a game by name extends the same file instead of creating a new one."""
+        with tempfile.TemporaryDirectory() as d:
+            wp.Config.record, games_dir, wp.GAMES_DIR = True, wp.GAMES_DIR, d
+            try:
+                a = self.new(name='Ellis')
+                for _ in range(2):
+                    a = self.move(a['game_id'], a['valid_moves'][0]['action']).get_json()
+                saved = self.c.get('/api/export', query_string={'game_id': a['game_id']}).get_json()
+                loaded = self.load(saved['moves'], model_color=saved['model_color'], name='Ellis').get_json()
+                self.move(loaded['game_id'], loaded['valid_moves'][0]['action'])
+                files = sorted(os.path.basename(f) for f in glob.glob(os.path.join(d, '*.json')))
+                self.assertEqual(files, ['Ellis.json'])
             finally:
                 wp.GAMES_DIR = games_dir
 
